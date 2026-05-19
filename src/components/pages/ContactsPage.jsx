@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
-const IS_LOCAL = import.meta.env.DEV;
+const IS_LOCAL  = import.meta.env.DEV;
+const PAGE_SIZE = 25;
 
 function formatAuPhone(num) {
   if (!num) return '';
@@ -21,7 +22,6 @@ function fullName(c) {
 
 // `field_1` = inquiry date we set during sync (YYYY-MM-DD).
 // `added`   = when MM added the contact to the broadcast list.
-// Pre-existing manual uploads have neither field_1 nor added (or only added).
 function contactDate(c) {
   if (c.field_1 && c.field_1.trim()) return c.field_1;
   if (c.added)   return c.added.slice(0, 10);
@@ -55,8 +55,9 @@ export default function ContactsPage() {
   const [loading, setLoading]   = useState(true);
   const [err, setErr]           = useState(null);
   const [search, setSearch]     = useState('');
-  const [sortKey, setSortKey]   = useState('date');  // 'date' | 'name'
-  const [sortDir, setSortDir]   = useState('desc');  // 'asc' | 'desc'
+  const [sortKey, setSortKey]   = useState('date');
+  const [sortDir, setSortDir]   = useState('desc');
+  const [page, setPage]         = useState(1);
 
   useEffect(() => {
     fetchContacts()
@@ -64,6 +65,9 @@ export default function ContactsPage() {
       .catch(e => setErr(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  // Reset to first page whenever filter/sort changes
+  useEffect(() => { setPage(1); }, [search, sortKey, sortDir]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -91,6 +95,11 @@ export default function ContactsPage() {
     return arr;
   }, [contacts, search, sortKey, sortDir]);
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage   = Math.min(page, totalPages);
+  const startIdx   = (safePage - 1) * PAGE_SIZE;
+  const pageRows   = filtered.slice(startIdx, startIdx + PAGE_SIZE);
+
   const namedCount = contacts.filter(c => fullName(c)).length;
 
   function toggleSort(key) {
@@ -103,7 +112,7 @@ export default function ContactsPage() {
   }
 
   function SortArrow({ active, dir }) {
-    if (!active) return <span style={{ opacity: 0.25, marginLeft: '4px' }}>↕</span>;
+    if (!active) return <span style={{ opacity: 0.3, marginLeft: '4px', fontSize: '10px' }}>↕</span>;
     return <span style={{ marginLeft: '4px', color: 'var(--primary)' }}>{dir === 'asc' ? '↑' : '↓'}</span>;
   }
 
@@ -123,6 +132,25 @@ export default function ContactsPage() {
         </div>
       </div>
     );
+  }
+
+  // Compact page-number list — show ellipsis for long ranges
+  function pageNumbers() {
+    const nums = [];
+    const max = totalPages;
+    if (max <= 7) {
+      for (let i = 1; i <= max; i++) nums.push(i);
+      return nums;
+    }
+    const around = new Set([1, 2, max - 1, max, safePage - 1, safePage, safePage + 1]);
+    let last = 0;
+    [...around].sort((a, b) => a - b).forEach(n => {
+      if (n < 1 || n > max) return;
+      if (last && n - last > 1) nums.push('…');
+      nums.push(n);
+      last = n;
+    });
+    return nums;
   }
 
   return (
@@ -166,7 +194,7 @@ export default function ContactsPage() {
             padding: '10px 14px',
             border: '1.5px solid var(--gray-200)',
             borderRadius: '8px',
-            fontSize: '15px',  // ≥16px on iOS prevents auto-zoom; 15 is fine on touch
+            fontSize: '15px',
             fontFamily: 'inherit',
             outline: 'none',
             boxSizing: 'border-box',
@@ -181,46 +209,24 @@ export default function ContactsPage() {
 
       {/* Table */}
       <div className="contacts-table">
-        {/* Desktop header row */}
-        <div className="contacts-row-header">
-          <div
-            className="contacts-row"
-            style={{ padding: 0, border: 'none', background: 'transparent', color: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', textTransform: 'inherit' }}
-          >
-            <div className="sortable" onClick={() => toggleSort('name')}>
-              Name <SortArrow active={sortKey === 'name'} dir={sortDir} />
-            </div>
-            <div>Phone</div>
-            <div className="sortable" onClick={() => toggleSort('date')}>
-              Lead Date <SortArrow active={sortKey === 'date'} dir={sortDir} />
-            </div>
+        {/* Sortable header row — visible on both desktop and mobile */}
+        <div className="contacts-row contacts-header-row">
+          <div className="contacts-cell-name sortable" onClick={() => toggleSort('name')}>
+            Name <SortArrow active={sortKey === 'name'} dir={sortDir} />
+          </div>
+          <div className="contacts-cell-phone phone-header">Phone</div>
+          <div className="contacts-cell-date sortable" onClick={() => toggleSort('date')}>
+            Date <SortArrow active={sortKey === 'date'} dir={sortDir} />
           </div>
         </div>
 
-        {/* Mobile sort toolbar */}
-        <div className="contacts-sort-bar">
-          <span>Sort by</span>
-          <button
-            className={sortKey === 'date' ? 'active' : ''}
-            onClick={() => toggleSort('date')}
-          >
-            Date {sortKey === 'date' && (sortDir === 'asc' ? '↑' : '↓')}
-          </button>
-          <button
-            className={sortKey === 'name' ? 'active' : ''}
-            onClick={() => toggleSort('name')}
-          >
-            Name {sortKey === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
-          </button>
-        </div>
-
         {/* Rows */}
-        {filtered.length === 0 && (
+        {pageRows.length === 0 && (
           <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--gray-400)', fontSize: '14px' }}>
             {search ? 'No contacts match your search.' : 'No contacts yet — add a lead to populate this list.'}
           </div>
         )}
-        {filtered.map((c, i) => {
+        {pageRows.map((c, i) => {
           const name = fullName(c);
           const date = contactDate(c);
           return (
@@ -237,6 +243,46 @@ export default function ContactsPage() {
             </div>
           );
         })}
+
+        {/* Pagination footer */}
+        {filtered.length > PAGE_SIZE && (
+          <div className="contacts-pager">
+            <div className="contacts-pager-info">
+              {startIdx + 1}–{Math.min(startIdx + PAGE_SIZE, filtered.length)} of {filtered.length}
+            </div>
+            <div className="contacts-pager-nav">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={safePage === 1}
+                aria-label="Previous page"
+              >
+                ‹ Prev
+              </button>
+              <div className="contacts-pager-numbers">
+                {pageNumbers().map((n, idx) =>
+                  n === '…' ? (
+                    <span key={'gap-' + idx} className="contacts-pager-ellipsis">…</span>
+                  ) : (
+                    <button
+                      key={n}
+                      onClick={() => setPage(n)}
+                      className={n === safePage ? 'active' : ''}
+                    >
+                      {n}
+                    </button>
+                  )
+                )}
+              </div>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={safePage === totalPages}
+                aria-label="Next page"
+              >
+                Next ›
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
