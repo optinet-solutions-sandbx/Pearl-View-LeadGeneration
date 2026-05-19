@@ -19,10 +19,9 @@ function fullName(c) {
   return '';
 }
 
-// Pick the most meaningful date for sorting/display:
-//  - `field_1` is the inquiry/lead-intake date we set during sync (YYYY-MM-DD).
-//  - `added`   is when MM added the contact to the broadcast list.
-// Fall back to `added` for pre-existing MM contacts where field_1 is blank.
+// `field_1` = inquiry date we set during sync (YYYY-MM-DD).
+// `added`   = when MM added the contact to the broadcast list.
+// Pre-existing manual uploads have neither field_1 nor added (or only added).
 function contactDate(c) {
   if (c.field_1 && c.field_1.trim()) return c.field_1;
   if (c.added)   return c.added.slice(0, 10);
@@ -30,14 +29,12 @@ function contactDate(c) {
 }
 
 async function fetchContacts() {
-  const url = IS_LOCAL ? '/mm-api/v1/list-contacts' : '/api/mm-list-contacts';
   if (IS_LOCAL) {
-    // Proxy injects auth, but we still need list_id + pagination
-    const all = [];
-    let offset = 0;
     const limit = 200;
+    let offset = 0;
+    const all = [];
     while (true) {
-      const r = await fetch(`${url}?list_id=${import.meta.env.VITE_MM_LIST_ID}&limit=${limit}&offset=${offset}`);
+      const r = await fetch(`/mm-api/v1/list-contacts?list_id=${import.meta.env.VITE_MM_LIST_ID}&limit=${limit}&offset=${offset}`);
       if (!r.ok) break;
       const d = await r.json();
       const batch = d.results || [];
@@ -47,7 +44,7 @@ async function fetchContacts() {
     }
     return all;
   }
-  const r = await fetch(url);
+  const r = await fetch('/api/mm-list-contacts');
   if (!r.ok) return [];
   const d = await r.json();
   return d.results || [];
@@ -82,7 +79,7 @@ export default function ContactsPage() {
     arr.sort((a, b) => {
       let av, bv;
       if (sortKey === 'name') {
-        av = fullName(a).toLowerCase() || '￿'; // empty names sort last
+        av = fullName(a).toLowerCase() || '￿';
         bv = fullName(b).toLowerCase() || '￿';
       } else {
         av = contactDate(a) || '0000';
@@ -131,36 +128,34 @@ export default function ContactsPage() {
   return (
     <div className="page">
       {/* Header */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px' }}>
-        <div>
-          <div style={{ fontSize: '17px', fontWeight: 700, color: 'var(--gray-900)' }}>Contacts</div>
-          <div style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '2px' }}>
-            Mobile Message broadcast list — every phone that goes through the system lands here automatically.
-          </div>
+      <div>
+        <div style={{ fontSize: '17px', fontWeight: 700, color: 'var(--gray-900)' }}>Contacts</div>
+        <div style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '2px' }}>
+          Mobile Message broadcast list — every phone that goes through the system lands here automatically.
         </div>
       </div>
 
       {/* Stat cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', flexShrink: 0 }}>
         <div style={{ background: '#fff', border: '1.5px solid var(--gray-200)', borderRadius: '10px', padding: '14px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Total Contacts</div>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--gray-900)', marginTop: '4px' }}>{contacts.length}</div>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Total</div>
+          <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--gray-900)', marginTop: '4px' }}>{contacts.length}</div>
           <div style={{ fontSize: '11px', color: 'var(--gray-400)', marginTop: '2px' }}>in broadcast list</div>
         </div>
         <div style={{ background: '#fff', border: '1.5px solid var(--gray-200)', borderRadius: '10px', padding: '14px' }}>
           <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Named</div>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: '#0d9488', marginTop: '4px' }}>{namedCount}</div>
-          <div style={{ fontSize: '11px', color: 'var(--gray-400)', marginTop: '2px' }}>with first/last name</div>
+          <div style={{ fontSize: '22px', fontWeight: 800, color: '#0d9488', marginTop: '4px' }}>{namedCount}</div>
+          <div style={{ fontSize: '11px', color: 'var(--gray-400)', marginTop: '2px' }}>with name attached</div>
         </div>
         <div style={{ background: '#fff', border: '1.5px solid var(--gray-200)', borderRadius: '10px', padding: '14px' }}>
           <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Unnamed</div>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: '#c2410c', marginTop: '4px' }}>{contacts.length - namedCount}</div>
-          <div style={{ fontSize: '11px', color: 'var(--gray-400)', marginTop: '2px' }}>phone only — pre-existing MM contacts</div>
+          <div style={{ fontSize: '22px', fontWeight: 800, color: '#c2410c', marginTop: '4px' }}>{contacts.length - namedCount}</div>
+          <div style={{ fontSize: '11px', color: 'var(--gray-400)', marginTop: '2px' }}>phone-only (legacy)</div>
         </div>
       </div>
 
       {/* Search */}
-      <div style={{ background: '#fff', border: '1px solid var(--gray-200)', borderRadius: '12px', padding: '14px 16px', marginBottom: '12px' }}>
+      <div style={{ background: '#fff', border: '1px solid var(--gray-200)', borderRadius: '12px', padding: '12px 14px', flexShrink: 0 }}>
         <input
           type="text"
           value={search}
@@ -171,7 +166,7 @@ export default function ContactsPage() {
             padding: '10px 14px',
             border: '1.5px solid var(--gray-200)',
             borderRadius: '8px',
-            fontSize: '14px',
+            fontSize: '15px',  // ≥16px on iOS prevents auto-zoom; 15 is fine on touch
             fontFamily: 'inherit',
             outline: 'none',
             boxSizing: 'border-box',
@@ -185,35 +180,38 @@ export default function ContactsPage() {
       </div>
 
       {/* Table */}
-      <div style={{ background: '#fff', border: '1px solid var(--gray-200)', borderRadius: '12px', overflow: 'hidden' }}>
-        {/* Header row */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(140px, 1.4fr) minmax(140px, 1.6fr) minmax(110px, 1fr)',
-          padding: '12px 16px',
-          borderBottom: '1.5px solid var(--gray-100)',
-          background: '#f8fafc',
-          fontSize: '11px',
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '.05em',
-          color: 'var(--gray-500)',
-        }}>
+      <div className="contacts-table">
+        {/* Desktop header row */}
+        <div className="contacts-row-header">
           <div
-            onClick={() => toggleSort('name')}
-            style={{ cursor: 'pointer', userSelect: 'none' }}
-            title="Sort by name"
+            className="contacts-row"
+            style={{ padding: 0, border: 'none', background: 'transparent', color: 'inherit', fontSize: 'inherit', fontWeight: 'inherit', letterSpacing: 'inherit', textTransform: 'inherit' }}
           >
-            Name <SortArrow active={sortKey === 'name'} dir={sortDir} />
+            <div className="sortable" onClick={() => toggleSort('name')}>
+              Name <SortArrow active={sortKey === 'name'} dir={sortDir} />
+            </div>
+            <div>Phone</div>
+            <div className="sortable" onClick={() => toggleSort('date')}>
+              Lead Date <SortArrow active={sortKey === 'date'} dir={sortDir} />
+            </div>
           </div>
-          <div>Phone</div>
-          <div
+        </div>
+
+        {/* Mobile sort toolbar */}
+        <div className="contacts-sort-bar">
+          <span>Sort by</span>
+          <button
+            className={sortKey === 'date' ? 'active' : ''}
             onClick={() => toggleSort('date')}
-            style={{ cursor: 'pointer', userSelect: 'none' }}
-            title="Sort by date"
           >
-            Lead Date <SortArrow active={sortKey === 'date'} dir={sortDir} />
-          </div>
+            Date {sortKey === 'date' && (sortDir === 'asc' ? '↑' : '↓')}
+          </button>
+          <button
+            className={sortKey === 'name' ? 'active' : ''}
+            onClick={() => toggleSort('name')}
+          >
+            Name {sortKey === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
+          </button>
         </div>
 
         {/* Rows */}
@@ -226,25 +224,14 @@ export default function ContactsPage() {
           const name = fullName(c);
           const date = contactDate(c);
           return (
-            <div
-              key={c.contact_id || c.number || i}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(140px, 1.4fr) minmax(140px, 1.6fr) minmax(110px, 1fr)',
-                padding: '12px 16px',
-                borderBottom: i === filtered.length - 1 ? 'none' : '1px solid var(--gray-100)',
-                alignItems: 'center',
-                fontSize: '13.5px',
-                color: 'var(--gray-800)',
-              }}
-            >
-              <div style={{ fontWeight: name ? 600 : 400, color: name ? 'var(--gray-900)' : 'var(--gray-400)' }}>
+            <div className="contacts-row" key={c.contact_id || c.number || i}>
+              <div className={`contacts-cell-name${name ? '' : ' unnamed'}`}>
                 {name || '— Unnamed —'}
               </div>
-              <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '13px', color: 'var(--gray-700)' }}>
+              <div className="contacts-cell-phone">
                 {formatAuPhone(c.number)}
               </div>
-              <div style={{ color: date ? 'var(--gray-600)' : 'var(--gray-300)', fontSize: '12.5px' }}>
+              <div className={`contacts-cell-date${date ? '' : ' empty'}`}>
                 {date || '—'}
               </div>
             </div>
