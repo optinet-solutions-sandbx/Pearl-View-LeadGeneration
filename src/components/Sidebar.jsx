@@ -8,6 +8,8 @@ export const PAGE_TITLES = {
   calendar:         'Calendar',
   expenses:         'Expenses',
   reports:          'Reports',
+  contacts:         'Contacts',
+  broadcast:        'Broadcast SMS',
 };
 
 // ── Mobile bottom navigation bar ─────────────────────────────────────────────
@@ -165,6 +167,19 @@ export default function Sidebar() {
           {navItem('reports', 'Reports',
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+            </svg>
+          )}
+          {navItem('contacts', 'Contacts',
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path d="M20 21v-2a4 4 0 00-3-3.87M4 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/>
+              <circle cx="10" cy="7" r="4"/>
+              <path d="M16 3.13a4 4 0 010 7.75"/>
+            </svg>
+          )}
+          {navItem('broadcast', 'Broadcast SMS',
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path d="M3 5h12a4 4 0 014 4v0a4 4 0 01-4 4H9l-6 4V5z"/>
+              <line x1="7" y1="9" x2="13" y2="9"/>
             </svg>
           )}
         </nav>

@@ -17,6 +17,8 @@ import DeletedHistoryPage from './components/pages/DeletedHistoryPage';
 import CalendarPage from './components/pages/CalendarPage';
 import ExpensesPage from './components/pages/ExpensesPage';
 import ReportsPage from './components/pages/ReportsPage';
+import ContactsPage from './components/pages/ContactsPage';
+import BroadcastPage from './components/pages/BroadcastPage';
 
 function PageBody() {
   const { currentPage } = useLeadsContext();
@@ -28,6 +30,8 @@ function PageBody() {
     case 'calendar':        return <CalendarPage />;
     case 'expenses':        return <ExpensesPage />;
     case 'reports':         return <ReportsPage />;
+    case 'contacts':        return <ContactsPage />;
+    case 'broadcast':       return <BroadcastPage />;
     case 'leads':
     default:                return <LeadsPage />;
   }
