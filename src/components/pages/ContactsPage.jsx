@@ -29,13 +29,25 @@ function contactDate(c) {
 }
 
 async function fetchContacts() {
+  // Cache-bust + force fresh fetch — iOS Safari aggressively caches API
+  // responses even with Cache-Control: max-age=0, and a stale bundle on
+  // the user's phone could otherwise hit a cached empty result.
+  const cacheBust = `_t=${Date.now()}`;
+  const fetchOpts = {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+  };
+
   if (IS_LOCAL) {
     const limit = 200;
     let offset = 0;
     const all = [];
     while (true) {
-      const r = await fetch(`/mm-api/v1/list-contacts?list_id=${import.meta.env.VITE_MM_LIST_ID}&limit=${limit}&offset=${offset}`);
-      if (!r.ok) break;
+      const r = await fetch(
+        `/mm-api/v1/list-contacts?list_id=${import.meta.env.VITE_MM_LIST_ID}&limit=${limit}&offset=${offset}&${cacheBust}`,
+        fetchOpts
+      );
+      if (!r.ok) throw new Error(`MM ${r.status}`);
       const d = await r.json();
       const batch = d.results || [];
       all.push(...batch);
@@ -44,8 +56,9 @@ async function fetchContacts() {
     }
     return all;
   }
-  const r = await fetch('/api/mm-list-contacts');
-  if (!r.ok) return [];
+
+  const r = await fetch(`/api/mm-list-contacts?${cacheBust}`, fetchOpts);
+  if (!r.ok) throw new Error(`API ${r.status}`);
   const d = await r.json();
   return d.results || [];
 }
@@ -58,13 +71,20 @@ export default function ContactsPage() {
   const [sortKey, setSortKey]   = useState('date');
   const [sortDir, setSortDir]   = useState('desc');
   const [page, setPage]         = useState(1);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setErr(null);
     fetchContacts()
-      .then(setContacts)
-      .catch(e => setErr(e.message))
-      .finally(() => setLoading(false));
-  }, []);
+      .then(d => { if (!cancelled) setContacts(d); })
+      .catch(e => { if (!cancelled) setErr(e.message || 'Failed to load'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [reloadKey]);
+
+  function refresh() { setReloadKey(k => k + 1); }
 
   // Reset to first page whenever filter/sort changes
   useEffect(() => { setPage(1); }, [search, sortKey, sortDir]);
@@ -127,8 +147,25 @@ export default function ContactsPage() {
   if (err) {
     return (
       <div className="page">
-        <div style={{ background: '#fef2f2', border: '1.5px solid #fecaca', color: '#991b1b', borderRadius: '12px', padding: '16px', fontSize: '13px' }}>
-          Couldn't load contacts: {err}
+        <div style={{ background: '#fef2f2', border: '1.5px solid #fecaca', color: '#991b1b', borderRadius: '12px', padding: '16px 18px', fontSize: '13px' }}>
+          <div style={{ fontWeight: 700, marginBottom: '6px' }}>Couldn't load contacts</div>
+          <div style={{ marginBottom: '12px', color: '#7f1d1d' }}>{err}</div>
+          <button
+            onClick={refresh}
+            style={{
+              padding: '8px 16px',
+              background: '#991b1b',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            Try again
+          </button>
         </div>
       </div>
     );
@@ -156,11 +193,39 @@ export default function ContactsPage() {
   return (
     <div className="page">
       {/* Header */}
-      <div>
-        <div style={{ fontSize: '17px', fontWeight: 700, color: 'var(--gray-900)' }}>Contacts</div>
-        <div style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '2px' }}>
-          Mobile Message broadcast list — every phone that goes through the system lands here automatically.
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: '17px', fontWeight: 700, color: 'var(--gray-900)' }}>Contacts</div>
+          <div style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '2px' }}>
+            Mobile Message broadcast list — every phone that goes through the system lands here automatically.
+          </div>
         </div>
+        <button
+          onClick={refresh}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '8px 14px',
+            background: '#fff',
+            color: 'var(--gray-700)',
+            border: '1.5px solid var(--gray-200)',
+            borderRadius: '8px',
+            fontSize: '12.5px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            minHeight: '36px',
+            flexShrink: 0,
+          }}
+          aria-label="Refresh contacts"
+        >
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" style={{ width: '14px', height: '14px' }}>
+            <path d="M23 4v6h-6M1 20v-6h6"/>
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+          </svg>
+          Refresh
+        </button>
       </div>
 
       {/* Stat cards */}
