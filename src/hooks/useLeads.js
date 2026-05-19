@@ -10,6 +10,75 @@ const AT_TOKEN = import.meta.env.VITE_AIRTABLE_TOKEN || '';
 const AT_BASE  = import.meta.env.VITE_AIRTABLE_BASE_ID || '';
 const AT_TABLE = import.meta.env.VITE_AIRTABLE_TABLE_ID || '';
 
+// ── Mobile Message broadcast list sync (non-blocking) ──────────────────────
+// Every new lead/client phone is added to MM list MM_LIST_ID so the owner can
+// blast monthly SMS broadcasts from mobilemessage.com.au without manual entry.
+// In local dev we call MM directly; in prod we go through /api/mm-sync-contact
+// (keeps the API password off the client bundle on the live site).
+const MM_USER  = import.meta.env.VITE_MM_USERNAME      || '';
+const MM_PASS  = import.meta.env.VITE_MM_API_PASSWORD  || '';
+const MM_LIST  = import.meta.env.VITE_MM_LIST_ID       || '';
+
+function normaliseAuPhone(input) {
+  if (!input) return '';
+  let s = String(input).replace(/[^\d+]/g, '');
+  if (s.startsWith('+')) s = s.slice(1);
+  if (s.startsWith('0')) s = '61' + s.slice(1);
+  if (s.length === 9 && s.startsWith('4')) s = '61' + s;
+  return s;
+}
+
+async function syncToMobileMessage({ name, phone, email, inquiryDate }) {
+  const num = normaliseAuPhone(phone);
+  if (!num || num.length < 10) return;
+  const [first = '', ...rest] = String(name || '').trim().split(/\s+/);
+  const last = rest.join(' ');
+  // YYYY-MM-DD sorts lexicographically in MM's custom field column.
+  const ymd = (() => {
+    const d = inquiryDate ? new Date(inquiryDate) : new Date();
+    return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+  })();
+
+  if (IS_LOCAL) {
+    if (!MM_USER || !MM_PASS || !MM_LIST) return;
+    const auth = btoa(`${MM_USER}:${MM_PASS}`);
+    const headers = { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' };
+    try {
+      // Check if contact already exists — if so, leave name/date alone.
+      const lookup = await fetch(
+        `/mm-api/v1/contacts?number=${encodeURIComponent(num)}&limit=1`,
+        { headers: { Authorization: `Basic ${auth}` } }
+      ).then(r => r.json()).catch(() => null);
+      const existing = lookup?.results?.length > 0;
+      if (!existing) {
+        const contactBody = { number: num };
+        if (first) contactBody.first_name = first;
+        if (last)  contactBody.last_name  = last;
+        if (email) contactBody.other      = email;
+        if (ymd)   contactBody.field_1    = ymd;
+        await fetch('/mm-api/v1/contacts', {
+          method: 'POST', headers, body: JSON.stringify(contactBody),
+        }).catch(() => {});
+      }
+      await fetch('/mm-api/v1/list-contacts', {
+        method: 'POST', headers,
+        body: JSON.stringify({ list_id: Number(MM_LIST), number: num }),
+      })
+        .then(r => r.json().then(d => console.log('MM sync:', { existed: existing, ...d })).catch(() => {}));
+    } catch (err) {
+      console.error('MM sync failed:', err);
+    }
+  } else {
+    fetch('/api/mm-sync-contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: num, firstName: first, lastName: last, email: email || '', inquiryDate: ymd }),
+    })
+      .then(r => r.json().then(d => console.log('MM sync:', d)).catch(() => {}))
+      .catch(err => console.error('MM sync failed:', err));
+  }
+}
+
 function normaliseRecord(rec) {
   const f = rec.fields;
   const isCall = !!(f['Caller ID'] || f['Call Time']);
@@ -560,7 +629,7 @@ export function useLeads() {
       const data = await r.json();
       if (data.id) {
         setLeads(prev => prev.map(l => l.id === tempId ? { ...l, airtableId: data.id } : l));
-        // Notify WhatsApp service (fire-and-forget)
+        // Notify WhatsApp service
         const webhookUrl = import.meta.env.VITE_WEBHOOK_URL;
         if (webhookUrl) {
           fetch(webhookUrl, {
@@ -573,8 +642,19 @@ export function useLeads() {
               subject:    leadData.subject     || '',
               leadSource: leadData.leadSource  || '',
             }),
-          }).catch(() => {});
+          })
+            .then(r => r.json().then(d => console.log('WhatsApp notification:', d)))
+            .catch(err => console.error('WhatsApp notification failed:', err));
+        } else {
+          console.warn('VITE_WEBHOOK_URL not set — skipping WhatsApp notification');
         }
+        // Sync phone number to Mobile Message broadcast list (non-blocking)
+        syncToMobileMessage({
+          name:  leadData.name  || '',
+          phone: leadData.phone || '',
+          email: leadData.email || '',
+          inquiryDate: now.toISOString(),
+        });
         return data.id;
       }
       return null;
@@ -629,6 +709,13 @@ export function useLeads() {
         city: lead.city || '', notes: lead.notes || '', jobType: lead.jobType || '',
         leadSource: src, status: '',
       }]);
+      // Sync phone to Mobile Message broadcast list (non-blocking)
+      syncToMobileMessage({
+        name:  lead.name  || '',
+        phone: lead.phone || '',
+        email: lead.email || '',
+        inquiryDate: lead.dateObj || lead.date || new Date(),
+      });
     }
   }, [clients]);
 
