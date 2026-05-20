@@ -73,6 +73,8 @@ export default function ContactsPage() {
   const [page, setPage]         = useState(1);
   const [reloadKey, setReloadKey] = useState(0);
 
+  const [syncBanner, setSyncBanner] = useState(null);  // { synced, remaining } | null
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -82,6 +84,23 @@ export default function ContactsPage() {
       .catch(e => { if (!cancelled) setErr(e.message || 'Failed to load'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+  }, [reloadKey]);
+
+  // Run the backstop sync once on page load (and again whenever Refresh is
+  // clicked). Catches leads created via form webhook or phone-call ingest
+  // that bypassed the dashboard's per-lead sync hook.
+  useEffect(() => {
+    if (IS_LOCAL) return;  // dev hits MM directly via proxy; skip the cron endpoint
+    fetch('/api/mm-sync-all', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        if (d.syncedNow > 0) {
+          setSyncBanner({ synced: d.syncedNow, remaining: d.remaining || 0 });
+          // Re-fetch contacts so the newly-synced ones appear
+          setReloadKey(k => k + 1);
+        }
+      })
+      .catch(() => {});
   }, [reloadKey]);
 
   function refresh() { setReloadKey(k => k + 1); }
@@ -227,6 +246,29 @@ export default function ContactsPage() {
           Refresh
         </button>
       </div>
+
+      {/* Backstop sync banner — only shows when sync-all picked up orphans */}
+      {syncBanner && syncBanner.synced > 0 && (
+        <div style={{
+          background: '#ecfdf5',
+          border: '1.5px solid #6ee7b7',
+          color: '#065f46',
+          borderRadius: '10px',
+          padding: '10px 14px',
+          fontSize: '12.5px',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          flexShrink: 0,
+        }}>
+          <span>✓</span>
+          <span>
+            Synced {syncBanner.synced} new lead{syncBanner.synced === 1 ? '' : 's'} from Airtable
+            {syncBanner.remaining > 0 ? ` (${syncBanner.remaining} more on next refresh)` : ''}.
+          </span>
+        </div>
+      )}
 
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', flexShrink: 0 }}>
