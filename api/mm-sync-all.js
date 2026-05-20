@@ -76,6 +76,25 @@ async function mmFetchAllPhones(auth) {
   return phones;
 }
 
+async function mmFetchListPhones(auth, listId) {
+  const phones = new Set();
+  const limit = 200;
+  let offset = 0;
+  while (true) {
+    const r = await fetch(
+      `https://api.mobilemessage.com.au/v1/list-contacts?list_id=${listId}&limit=${limit}&offset=${offset}`,
+      { headers: { Authorization: `Basic ${auth}` } }
+    );
+    if (!r.ok) throw new Error(`MM list-contacts ${r.status}`);
+    const d = await r.json();
+    const batch = d.results || [];
+    for (const c of batch) if (c.number) phones.add(String(c.number));
+    if (batch.length < limit) break;
+    offset += limit;
+  }
+  return phones;
+}
+
 export default async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
@@ -102,10 +121,11 @@ export default async (req, res) => {
   const auth = Buffer.from(`${MM_USER}:${MM_PASS}`).toString('base64');
 
   try {
-    const [leads, clients, mmPhones] = await Promise.all([
+    const [leads, clients, mmPhones, listPhones] = await Promise.all([
       atFetchAll(AT_BASE, LEADS_TABLE, AT_TOKEN),
       atFetchAll(AT_BASE, CLIENTS_TABLE, AT_TOKEN),
       mmFetchAllPhones(auth),
+      mmFetchListPhones(auth, MM_LIST_ID),
     ]);
 
     // Dedupe Airtable rows by normalized phone, keeping the most useful
@@ -138,18 +158,25 @@ export default async (req, res) => {
     }
 
     const allAirtablePhones = [...byPhone.values()];
-    const missing = allAirtablePhones.filter(e => !mmPhones.has(e.phone));
 
-    // Cap syncs per call so we don't blow past Vercel's 10s function budget.
-    const batch = missing.slice(0, MAX_SYNCS_PER_CALL);
+    // Two categories of "missing from broadcast list":
+    //   A. Phone exists in Airtable but not in MM at all → CREATE + add-to-list
+    //   B. Phone exists in MM but not in the broadcast list → just add-to-list
+    //      (these are contacts uploaded manually to MM that bypassed our sync)
+    const missingFromMm   = allAirtablePhones.filter(e => !mmPhones.has(e.phone));
+    const inMmNotInList   = [...mmPhones].filter(p => !listPhones.has(p));
 
-    let created = 0;
+    // Total work to do, capped per invocation to stay under Vercel's 10s budget.
+    let budget = MAX_SYNCS_PER_CALL;
+    let createdInMm = 0;
+    let addedToList = 0;
     const errors = [];
-    for (const e of batch) {
+
+    // Category A — create-then-add
+    for (const e of missingFromMm) {
+      if (budget-- <= 0) break;
       const { first, last } = splitName(e.name);
       const ymd = toYmd(e.date);
-
-      // Create contact (skip if MM rejects e.g. landline)
       const contactBody = { number: e.phone };
       if (first) contactBody.first_name = first;
       if (last)  contactBody.last_name  = last;
@@ -162,31 +189,46 @@ export default async (req, res) => {
         body: JSON.stringify(contactBody),
       });
       if (!cr.ok) {
-        // Typically a landline — record and skip
         errors.push({ phone: e.phone, stage: 'create', status: cr.status });
         continue;
       }
-
       const lr = await fetch('https://api.mobilemessage.com.au/v1/list-contacts', {
         method: 'POST',
         headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ list_id: MM_LIST_ID, number: e.phone }),
       });
-      if (lr.ok) {
-        created++;
-      } else {
-        errors.push({ phone: e.phone, stage: 'list', status: lr.status });
-      }
+      if (lr.ok) createdInMm++;
+      else errors.push({ phone: e.phone, stage: 'list', status: lr.status });
     }
+
+    // Category B — already in MM, just needs list assignment
+    for (const phone of inMmNotInList) {
+      if (budget-- <= 0) break;
+      const lr = await fetch('https://api.mobilemessage.com.au/v1/list-contacts', {
+        method: 'POST',
+        headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ list_id: MM_LIST_ID, number: phone }),
+      });
+      if (lr.ok) addedToList++;
+      else errors.push({ phone, stage: 'list-only', status: lr.status });
+    }
+
+    const totalRemaining =
+      Math.max(0, missingFromMm.length - createdInMm - errors.filter(e => e.stage === 'create').length) +
+      Math.max(0, inMmNotInList.length - addedToList - errors.filter(e => e.stage === 'list-only').length);
 
     return res.status(200).json({
       ok: true,
-      totalAirtable: allAirtablePhones.length,
-      alreadyInMm:   allAirtablePhones.length - missing.length,
-      missingBefore: missing.length,
-      syncedNow:     created,
-      remaining:     Math.max(0, missing.length - batch.length),
-      errors:        errors.slice(0, 10),
+      totalAirtable:   allAirtablePhones.length,
+      totalInMm:       mmPhones.size,
+      inBroadcastList: listPhones.size,
+      missingFromMm:   missingFromMm.length,
+      inMmNotInList:   inMmNotInList.length,
+      syncedNow:       createdInMm + addedToList,
+      createdInMm,
+      addedToList,
+      remaining:       totalRemaining,
+      errors:          errors.slice(0, 10),
     });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
