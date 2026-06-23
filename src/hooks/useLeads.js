@@ -280,28 +280,38 @@ export function useLeads() {
       }
       // ── Fetch revenue in parallel ─────────────────────────────────────────────
       const revenueRecs = await fetchRecords(AT_TABLES.revenue);
-      // Build phone → payment lookup (highest amount wins per phone)
+      // Build payment lookups (highest amount wins). Match by phone when the
+      // Revenue record has one; otherwise fall back to Client Name so payments
+      // on phone-less leads still re-link to their lead on reload.
       const paymentByPhone = {};
+      const paymentByName  = {};
       revenueRecs.forEach(r => {
-        const phone = (r.fields?.['Phone'] || '').replace(/\s/g, '').toLowerCase();
+        const phone  = (r.fields?.['Phone'] || '').replace(/\s/g, '').toLowerCase();
+        const name   = (r.fields?.['Client Name'] || '').trim().toLowerCase();
         const amount = parseFloat(r.fields?.['Amount'] || 0);
-        if (phone && amount > 0) {
-          const existing = paymentByPhone[phone];
-          if (!existing || amount > existing.paidAmount) {
-            paymentByPhone[phone] = {
-              paid: true,
-              paidAmount: amount,
-              paymentMethod: r.fields?.['Payment_Method'] || '',
-              revenueRecordId: r.id,
-            };
-          }
+        if (amount <= 0) return;
+        const entry = {
+          paid: true,
+          paidAmount: amount,
+          paymentMethod: r.fields?.['Payment_Method'] || '',
+          revenueRecordId: r.id,
+        };
+        if (phone) {
+          const ex = paymentByPhone[phone];
+          if (!ex || amount > ex.paidAmount) paymentByPhone[phone] = entry;
+        } else if (name) {
+          const ex = paymentByName[name];
+          if (!ex || amount > ex.paidAmount) paymentByName[name] = entry;
         }
       });
 
       const all = allRecords.map(r => {
         const lead = normaliseRecord(r);
         const phoneKey = (lead.phone || '').replace(/\s/g, '').toLowerCase();
-        const payment = phoneKey ? (paymentByPhone[phoneKey] || {}) : {};
+        const nameKey  = (lead.name  || '').trim().toLowerCase();
+        const payment = (phoneKey && paymentByPhone[phoneKey])
+          || (nameKey && paymentByName[nameKey])
+          || {};
         return { ...lead, ...payment };
       });
       const active  = all.filter(r => r.status !== 'archived').sort((a, b) => b.dateObj - a.dateObj);
