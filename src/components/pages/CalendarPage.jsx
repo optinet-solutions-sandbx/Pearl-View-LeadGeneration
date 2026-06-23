@@ -419,11 +419,17 @@ export default function CalendarPage() {
     .filter(b => b.bookingStatus !== 'Cancelled')
     .map(b => ({ ...b, parsedDate: new Date(b.date), name: b.clientName, isCalBooking: true, jobType: b.service }));
 
-  // Exclude leads whose phone already has a calBooking this month — prevents duplicates
-  // (confirmBook creates both a calBooking AND sets jobDate on the lead)
-  const calBookingPhones = new Set(monthCalBookings.map(b => b.phone).filter(Boolean));
+  // Exclude leads that already have a calBooking this month — prevents duplicates
+  // (confirmBook / booking sync create both a calBooking AND a lead). Match by
+  // phone (digits) OR Client Name, since calendar jobs often have no phone.
+  const dig = s => (s || '').replace(/\D/g, '');
+  const nmz = s => (s || '').trim().toLowerCase();
+  const calBookingPhones = new Set(monthCalBookings.map(b => dig(b.phone)).filter(Boolean));
+  const calBookingNames  = new Set(monthCalBookings.map(b => nmz(b.name)).filter(Boolean));
   const monthLeadBookings = leads
-    .filter(l => l.jobDate && l.status !== 'refused' && l.status !== 'scam' && l.status !== 'archived' && l.status !== 'job_done' && !calBookingPhones.has(l.phone))
+    .filter(l => l.jobDate && l.status !== 'refused' && l.status !== 'scam' && l.status !== 'archived' && l.status !== 'job_done'
+      && !(dig(l.phone) && calBookingPhones.has(dig(l.phone)))
+      && !(nmz(l.name) && calBookingNames.has(nmz(l.name))))
     .map(l => ({ ...l, parsedDate: new Date(l.jobDate), isCalBooking: false }))
     .filter(b => b.parsedDate.getFullYear() === year && b.parsedDate.getMonth() === month);
 
