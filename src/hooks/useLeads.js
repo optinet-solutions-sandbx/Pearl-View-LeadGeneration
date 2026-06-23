@@ -905,52 +905,87 @@ export function useLeads() {
   }, []);
 
   // Record payment for a calendar booking:
-  // - Updates the booking status + amount
-  // - Creates a Revenue record
-  // - Updates the linked lead's paid status (match by phone)
-  const recordBookingPayment = useCallback((bookingId, paidAmount, paymentMethod) => {
-    setCalBookings(prev => {
-      const booking = prev.find(b => b.id === bookingId);
-      if (!booking) return prev;
+  // - Marks the booking Completed + amount
+  // - Creates a Revenue record (counts as income)
+  // - FULL SYNC: ensures the job appears in the Leads "Job Done" column —
+  //   moves the linked lead to Job Done, or creates a Job Done lead if the
+  //   booking was added straight on the Calendar with no lead behind it.
+  const recordBookingPayment = useCallback(async (bookingId, paidAmount, paymentMethod) => {
+    const booking = calBookings.find(b => b.id === bookingId);
+    if (!booking) return;
 
-      // Update booking in Airtable
-      if (booking.airtableId) {
-        updateRecord(AT_TABLES.calendar, booking.airtableId, {
-          'Booking Status': 'Completed',
-          'Amount': paidAmount,
-        });
-      }
-
-      // Write Revenue record — calendar booking payments are always completed jobs
-      createRecord(AT_TABLES.revenue, {
-        'Revenue Name':   `${booking.clientName} - ${booking.service || 'Window Cleaning'}`,
-        'Date':           new Date().toISOString().split('T')[0],
-        'Client Name':    booking.clientName,
-        'Phone':          booking.phone || '',
-        'Job_Service':    booking.service || 'Window Cleaning',
-        'City':           booking.city || '',
-        'Payment_Method': paymentMethod || 'Cash',
-        'Amount':         paidAmount,
-        'Status':         'Job Done',
+    // 1. Booking → Completed (Airtable + local)
+    if (booking.airtableId) {
+      updateRecord(AT_TABLES.calendar, booking.airtableId, {
+        'Booking Status': 'Completed',
+        'Amount': paidAmount,
       });
+    }
+    setCalBookings(prev => prev.map(b => b.id === bookingId
+      ? { ...b, bookingStatus: 'Completed', amount: paidAmount, paymentMethod }
+      : b));
 
-      // Update linked lead's paid state in memory (by phone match)
-      // Note: Leads table has no payment fields — Revenue table is the persistence layer
-      if (booking.phone) {
-        setLeads(leads => leads.map(l => {
-          if (l.phone === booking.phone && !l.paid) {
-            return { ...l, paid: true, paidAmount, paymentMethod };
-          }
-          return l;
-        }));
-      }
-
-      return prev.map(b => b.id === bookingId
-        ? { ...b, bookingStatus: 'Completed', amount: paidAmount, paymentMethod }
-        : b
-      );
+    // 2. Revenue record — calendar booking payments are always completed jobs
+    createRecord(AT_TABLES.revenue, {
+      'Revenue Name':   `${booking.clientName} - ${booking.service || 'Window Cleaning'}`,
+      'Date':           new Date().toISOString().split('T')[0],
+      'Client Name':    booking.clientName,
+      'Phone':          booking.phone || '',
+      'Job_Service':    booking.service || 'Window Cleaning',
+      'City':           booking.city || '',
+      'Payment_Method': paymentMethod || 'Cash',
+      'Amount':         paidAmount,
+      'Status':         'Job Done',
     });
-  }, [patchAirtable]);
+
+    // 3. Find-or-create the Job Done lead (match by linked id, then phone, then name)
+    const np = s => (s || '').replace(/\D/g, '');
+    const nm = s => (s || '').trim().toLowerCase();
+    const match = leads.find(l =>
+      (booking.linkedLeadId && l.id === booking.linkedLeadId) ||
+      (booking.phone && np(l.phone) && np(l.phone) === np(booking.phone)) ||
+      (booking.clientName && nm(l.name) && nm(l.name) === nm(booking.clientName))
+    );
+
+    if (match) {
+      // Move existing lead to Job Done + record the invoice amount/paid state
+      if (match.airtableId) {
+        const fields = { 'Final Invoice Amount': paidAmount };
+        if (match.status !== 'job_done') fields['Lead Status'] = 'Job Done';
+        patchAirtable(match.airtableId, fields);
+      }
+      setLeads(prev => prev.map(l => l.id === match.id
+        ? { ...l, status: 'job_done', progress: 100, invoice: paidAmount, paid: true, paidAmount, paymentMethod }
+        : l));
+    } else {
+      // Calendar-only job → create a Job Done lead so it shows in the column
+      const jobType = VALID_JOB_TYPES.has(booking.service) ? booking.service : '';
+      const newId = await createRecord(AT_TABLES.leads, {
+        'Client Name':          booking.clientName || 'Unknown',
+        'Phone Number':         booking.phone || '',
+        'Property Type':        jobType,
+        'Final Invoice Amount': paidAmount || booking.amount || 0,
+        'Lead Status':          'Job Done',
+        'Lead Source':          'Other',
+        'Inquiry Date':         new Date().toISOString(),
+      });
+      if (newId) {
+        const now = new Date();
+        setLeads(prev => [{
+          id: newId, airtableId: newId,
+          name: booking.clientName || 'Unknown', phone: booking.phone || '', email: '',
+          source: 'manual', lp: null, subject: '',
+          date: now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          dateObj: now, address: '', jobType, windows: 0, stories: 0,
+          value: 0, invoice: paidAmount || booking.amount || 0, duration: '', followUp: '',
+          jobDate: booking.date || '', details: '', status: 'job_done', progress: 100,
+          starred: false, notes: '', hasCall: false, tag: '', refuseReason: '',
+          paid: true, paidAmount, paymentMethod, city: booking.city || '',
+          leadChannel: '', leadSource: 'Other', invoiceNumber: null, invoiceSent: false,
+        }, ...prev]);
+      }
+    }
+  }, [calBookings, leads, patchAirtable]);
 
   // ─── Archive a client (Status = 'Archived' in Airtable, moves to archivedClients) ──
   const archiveClient = useCallback((airtableId) => {
