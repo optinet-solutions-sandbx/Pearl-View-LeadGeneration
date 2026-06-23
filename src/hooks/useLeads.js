@@ -869,8 +869,56 @@ export function useLeads() {
     if (airtableId) {
       setCalBookings(prev => prev.map(b => b.id === localId ? { ...b, airtableId } : b));
     }
+
+    // FULL SYNC: a scheduled booking should appear in the Leads "Booked" column.
+    // Find the matching lead (by linked id / phone / name) and move it to Booked,
+    // or create a Booked lead when the booking was added straight on the Calendar.
+    // Skip "Unknown Caller" / nameless placeholders.
+    const cName = record.clientName || '';
+    if (cName && !/^unknown/i.test(cName.trim())) {
+      const np = s => (s || '').replace(/\D/g, '');
+      const nm = s => (s || '').trim().toLowerCase();
+      const match = leads.find(l =>
+        (record.linkedLeadId && l.id === record.linkedLeadId) ||
+        (record.phone && np(l.phone) && np(l.phone) === np(record.phone)) ||
+        (nm(l.name) && nm(l.name) === nm(cName))
+      );
+      if (match) {
+        // Don't demote a lead that's already further along
+        if (match.airtableId && !['booked', 'job_done', 'archived'].includes(match.status)) {
+          patchAirtable(match.airtableId, { 'Lead Status': 'Booked' });
+          setLeads(prev => prev.map(l => l.id === match.id ? { ...l, status: 'booked', progress: 80, jobDate: record.date || l.jobDate } : l));
+        }
+      } else {
+        const jobType = VALID_JOB_TYPES.has(record.service) ? record.service : '';
+        const newId = await createRecord(AT_TABLES.leads, {
+          'Client Name':            cName,
+          'Phone Number':           record.phone || '',
+          'Property Type':          jobType,
+          'Quote Amount':           record.amount || 0,
+          'Lead Status':            'Booked',
+          'Lead Source':            'Other',
+          'Scheduled Cleaning Date': record.date || '',
+          'Inquiry Date':           new Date().toISOString(),
+        });
+        if (newId) {
+          const now = new Date();
+          setLeads(prev => [{
+            id: newId, airtableId: newId, name: cName, phone: record.phone || '', email: '',
+            source: 'manual', lp: null, subject: '',
+            date: now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+            dateObj: now, address: '', jobType, windows: 0, stories: 0,
+            value: record.amount || 0, invoice: 0, duration: '', followUp: '',
+            jobDate: record.date || '', details: '', status: 'booked', progress: 80,
+            starred: false, notes: '', hasCall: false, tag: '', refuseReason: '',
+            paid: false, paidAmount: 0, paymentMethod: '', city: record.city || '',
+            leadChannel: '', leadSource: 'Other', invoiceNumber: null, invoiceSent: false,
+          }, ...prev]);
+        }
+      }
+    }
     return localId;
-  }, []);
+  }, [leads, patchAirtable]);
 
   const removeCalBooking = useCallback((id) => {
     setCalBookings(prev => {
