@@ -38,6 +38,31 @@ export function LeadsProvider({ children }) {
   // Quote-send modal state (when changing status → quote_sent via swipe/drag)
   const [quoteSendModalId, setQuoteSendModalId] = useState(null);
 
+  // Invoice modal state (opens after a lead is marked Job Done — Review & Send)
+  const [invoiceModalId, setInvoiceModalId] = useState(null);
+  const openInvoiceModal  = useCallback((id) => setInvoiceModalId(id), []);
+  const closeInvoiceModal = useCallback(() => setInvoiceModalId(null), []);
+
+  // POST to the Cloud Run /send-invoice endpoint. Derives the URL from
+  // VITE_WEBHOOK_URL (…/notify-lead → …/send-invoice) unless VITE_INVOICE_URL is set.
+  const sendInvoice = useCallback(async (payload) => {
+    const base = import.meta.env.VITE_INVOICE_URL
+      || (import.meta.env.VITE_WEBHOOK_URL || '').replace('/notify-lead', '/send-invoice');
+    if (!base) throw new Error('Invoice endpoint not configured (VITE_WEBHOOK_URL)');
+    const r = await fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `Send failed (${r.status})`);
+    // On a real send, re-read leads so the UI reflects Invoice Sent/Number
+    if (!payload.test && data.invoiceNumber) {
+      fetchLeads({ silent: true }).catch(() => {});
+    }
+    return data;
+  }, [fetchLeads]);
+
   useEffect(() => {
     fetchLeads().catch(() => showToast('Failed to load data — check console'));
   }, [fetchLeads]);
@@ -112,8 +137,13 @@ export function LeadsProvider({ children }) {
     }
 
     const result = await changeStatus(id, status);
-    if (result === 'error') showToast('Failed to save — check your connection');
-    else if (result === 'ok') showToast('Status updated ✓');
+    if (result === 'error') { showToast('Failed to save — check your connection'); return; }
+    showToast('Status updated ✓');
+    // Review & Send: marking Job Done pops the invoice preview (skip if already invoiced)
+    if (status === 'job_done') {
+      const lead = leads.find(l => l.id === id);
+      if (!lead?.invoiceSent) setInvoiceModalId(id);
+    }
   }, [changeStatus, showToast, leads, setRefuseReason]);
 
   const confirmRefuse = useCallback(async (reason) => {
@@ -365,6 +395,10 @@ export function LeadsProvider({ children }) {
       quoteSendLeadName: leads.find(l => l.id === quoteSendModalId)?.name || null,
       confirmQuoteSend,
       closeQuoteSendModal,
+      invoiceModalLead: invoiceModalId ? (leads.find(l => l.id === invoiceModalId) || null) : null,
+      openInvoiceModal,
+      closeInvoiceModal,
+      sendInvoice,
       sendQuoteAndChangeStatus,
       quoteTransferModalId,
       quoteTransferTargetStatus,

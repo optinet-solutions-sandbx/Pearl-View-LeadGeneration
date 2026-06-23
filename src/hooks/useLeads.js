@@ -129,6 +129,8 @@ function normaliseRecord(rec) {
     city: f['City'] || '',
     leadChannel: f['Lead Channel'] || '',
     leadSource: f['Lead Source'] || '',
+    invoiceNumber: f['Invoice Number'] || null,
+    invoiceSent: !!f['Invoice Sent'],
     airtableId: rec.id,
   };
 }

@@ -8,6 +8,7 @@ import RefuseModal from './components/RefuseModal';
 import QuoteTransferModal from './components/QuoteTransferModal';
 import BookModal from './components/BookModal';
 import QuoteSendModal from './components/QuoteSendModal';
+import InvoiceModal from './components/InvoiceModal';
 import Toast from './components/Toast';
 import LoadingOverlay from './components/LoadingOverlay';
 import LeadsPage from './components/pages/LeadsPage';
@@ -78,6 +79,7 @@ function Dashboard() {
       <QuoteTransferModal />
       <BookModal />
       <QuoteSendModal />
+      <InvoiceModal />
       <Toast />
       <MobileBottomNav />
       {/* FAB — mobile-only, Leads page only */}
