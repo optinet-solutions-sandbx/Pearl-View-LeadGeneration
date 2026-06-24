@@ -309,8 +309,11 @@ export function useLeads() {
         const lead = normaliseRecord(r);
         const phoneKey = (lead.phone || '').replace(/\s/g, '').toLowerCase();
         const nameKey  = (lead.name  || '').trim().toLowerCase();
+        // Name fallback ONLY for phone-less leads — a lead with a phone must
+        // match by phone, never by name (prevents a different/new same-named
+        // lead from inheriting a leftover payment).
         const payment = (phoneKey && paymentByPhone[phoneKey])
-          || (nameKey && paymentByName[nameKey])
+          || (!phoneKey && nameKey && paymentByName[nameKey])
           || {};
         return { ...lead, ...payment };
       });
@@ -571,6 +574,29 @@ export function useLeads() {
         permanentlyDeletedIds.current.add(lead.airtableId);
         // Use AT_TABLES.leads (has fallback name) instead of AT_TABLE which may be '' in production
         deleteRecord(AT_TABLES.leads, lead.airtableId);
+      }
+      // Also remove the linked Revenue record. Payment state is re-attached to
+      // leads on every load by matching Revenue rows by phone (or by NAME when
+      // the Revenue row has no phone). If we leave an orphaned Revenue row here,
+      // a future lead with the same phone/name inherits this payment and shows
+      // "Paid" forever (e.g. delete a client, re-add them → they're paid again).
+      if (lead) {
+        if (lead.revenueRecordId) {
+          deleteRecord(AT_TABLES.revenue, lead.revenueRecordId);
+        } else if (lead.phone || lead.name) {
+          const phone = (lead.phone || '').replace(/\s/g, '').toLowerCase();
+          const name  = (lead.name  || '').trim().toLowerCase();
+          fetchRecords(AT_TABLES.revenue).then(recs => {
+            const match = recs.find(r => {
+              const rPhone = (r.fields?.['Phone'] || '').replace(/\s/g, '').toLowerCase();
+              const rName  = (r.fields?.['Client Name'] || '').trim().toLowerCase();
+              // Mirror fetchLeads' linking: by phone when both have one,
+              // otherwise by name only for phone-less Revenue rows.
+              return (phone && rPhone && rPhone === phone) || (!rPhone && name && rName === name);
+            });
+            if (match) deleteRecord(AT_TABLES.revenue, match.id);
+          });
+        }
       }
       return prev.filter(l => l.id !== id);
     });
@@ -962,29 +988,36 @@ export function useLeads() {
     const booking = calBookings.find(b => b.id === bookingId);
     if (!booking) return;
 
-    // 1. Booking → Completed (Airtable + local)
+    // A booking can be marked done WITH payment (amount > 0) or WITHOUT
+    // (amount 0 → "collect payment later"). No payment ⇒ NO Revenue, paid=false.
+    const amt = Number(paidAmount) || 0;
+    const hasPayment = amt > 0;
+
+    // 1. Booking → Completed (Airtable + local). Keep existing amount if no payment.
     if (booking.airtableId) {
       updateRecord(AT_TABLES.calendar, booking.airtableId, {
         'Booking Status': 'Completed',
-        'Amount': paidAmount,
+        'Amount': hasPayment ? amt : (booking.amount || 0),
       });
     }
     setCalBookings(prev => prev.map(b => b.id === bookingId
-      ? { ...b, bookingStatus: 'Completed', amount: paidAmount, paymentMethod }
+      ? { ...b, bookingStatus: 'Completed', amount: hasPayment ? amt : b.amount, paymentMethod: hasPayment ? paymentMethod : b.paymentMethod }
       : b));
 
-    // 2. Revenue record — calendar booking payments are always completed jobs
-    createRecord(AT_TABLES.revenue, {
-      'Revenue Name':   `${booking.clientName} - ${booking.service || 'Window Cleaning'}`,
-      'Date':           new Date().toISOString().split('T')[0],
-      'Client Name':    booking.clientName,
-      'Phone':          booking.phone || '',
-      'Job_Service':    booking.service || 'Window Cleaning',
-      'City':           booking.city || '',
-      'Payment_Method': paymentMethod || 'Cash',
-      'Amount':         paidAmount,
-      'Status':         'Job Done',
-    });
+    // 2. Revenue record — ONLY when an actual payment was taken
+    if (hasPayment) {
+      createRecord(AT_TABLES.revenue, {
+        'Revenue Name':   `${booking.clientName} - ${booking.service || 'Window Cleaning'}`,
+        'Date':           new Date().toISOString().split('T')[0],
+        'Client Name':    booking.clientName,
+        'Phone':          booking.phone || '',
+        'Job_Service':    booking.service || 'Window Cleaning',
+        'City':           booking.city || '',
+        'Payment_Method': paymentMethod || 'Cash',
+        'Amount':         amt,
+        'Status':         'Job Done',
+      });
+    }
 
     // 3. Find-or-create the Job Done lead (match by linked id, then phone, then name)
     const np = s => (s || '').replace(/\D/g, '');
@@ -996,14 +1029,16 @@ export function useLeads() {
     );
 
     if (match) {
-      // Move existing lead to Job Done + record the invoice amount/paid state
+      // Move existing lead to Job Done; only stamp invoice/paid when a payment was taken
       if (match.airtableId) {
-        const fields = { 'Final Invoice Amount': paidAmount };
+        const fields = {};
         if (match.status !== 'job_done') fields['Lead Status'] = 'Job Done';
-        patchAirtable(match.airtableId, fields);
+        if (hasPayment) fields['Final Invoice Amount'] = amt;
+        if (Object.keys(fields).length) patchAirtable(match.airtableId, fields);
       }
       setLeads(prev => prev.map(l => l.id === match.id
-        ? { ...l, status: 'job_done', progress: 100, invoice: paidAmount, paid: true, paidAmount, paymentMethod }
+        ? { ...l, status: 'job_done', progress: 100,
+            ...(hasPayment ? { invoice: amt, paid: true, paidAmount: amt, paymentMethod } : {}) }
         : l));
     } else {
       // Calendar-only job → create a Job Done lead so it shows in the column
@@ -1012,7 +1047,7 @@ export function useLeads() {
         'Client Name':          booking.clientName || 'Unknown',
         'Phone Number':         booking.phone || '',
         'Property Type':        jobType,
-        'Final Invoice Amount': paidAmount || booking.amount || 0,
+        'Final Invoice Amount': hasPayment ? amt : 0,
         'Lead Status':          'Job Done',
         'Lead Source':          'Other',
         'Inquiry Date':         new Date().toISOString(),
@@ -1025,11 +1060,11 @@ export function useLeads() {
           source: 'manual', lp: null, subject: '',
           date: now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
           dateObj: now, address: '', jobType, windows: 0, stories: 0,
-          value: 0, invoice: paidAmount || booking.amount || 0, duration: '', followUp: '',
+          value: 0, invoice: hasPayment ? amt : 0, duration: '', followUp: '',
           jobDate: booking.date || '', details: '', status: 'job_done', progress: 100,
           starred: false, notes: '', hasCall: false, tag: '', refuseReason: '',
-          paid: true, paidAmount, paymentMethod, city: booking.city || '',
-          leadChannel: '', leadSource: 'Other', invoiceNumber: null, invoiceSent: false,
+          paid: hasPayment, paidAmount: hasPayment ? amt : 0, paymentMethod: hasPayment ? paymentMethod : '',
+          city: booking.city || '', leadChannel: '', leadSource: 'Other', invoiceNumber: null, invoiceSent: false,
         }, ...prev]);
       }
     }

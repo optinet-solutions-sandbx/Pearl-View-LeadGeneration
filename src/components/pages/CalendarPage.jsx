@@ -19,9 +19,10 @@ function CompleteJobModal({ booking, onClose, onConfirm }) {
   const [upsellNotes, setUpsellNotes] = useState('');
   const [err,         setErr]         = useState('');
 
-  function handleSubmit() {
+  // Done + payment: requires an amount
+  function handleSubmitPaid() {
     const amt = parseFloat(amount);
-    if (!amt || amt <= 0) { setErr('Please enter the payment amount'); return; }
+    if (!amt || amt <= 0) { setErr('Enter the payment amount, or use "Collect payment later"'); return; }
     setErr('');
     onConfirm({
       amount: amt,
@@ -29,6 +30,13 @@ function CompleteJobModal({ booking, onClose, onConfirm }) {
       upsellAmount: parseFloat(upsellAmt) || 0,
       upsellNotes:  upsellNotes.trim(),
     });
+    onClose();
+  }
+
+  // Done WITHOUT payment: marks the job done, no Revenue, lead not marked paid
+  function handleSubmitUnpaid() {
+    setErr('');
+    onConfirm({ amount: 0, method, upsellAmount: 0, upsellNotes: '', noPayment: true });
     onClose();
   }
 
@@ -64,7 +72,7 @@ function CompleteJobModal({ booking, onClose, onConfirm }) {
             </div>
           </div>
           <div>
-            <label style={fLbl}>Amount Paid *</label>
+            <label style={fLbl}>Amount Paid</label>
             <div style={{ position: 'relative' }}>
               <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-500)', fontWeight: 700, fontSize: '14px' }}>$</span>
               <input
@@ -100,8 +108,11 @@ function CompleteJobModal({ booking, onClose, onConfirm }) {
           </div>
 
           {err && <div style={{ fontSize: '12px', color: '#dc2626', padding: '8px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px' }}>{err}</div>}
-          <button onClick={handleSubmit} style={{ width: '100%', padding: '10px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-            Confirm — Job Done
+          <button onClick={handleSubmitPaid} style={{ width: '100%', padding: '11px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', minHeight: '44px' }}>
+            Job Done + Record Payment
+          </button>
+          <button onClick={handleSubmitUnpaid} style={{ width: '100%', padding: '11px', background: '#fff', color: '#16a34a', border: '1.5px solid #16a34a', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', minHeight: '44px' }}>
+            Job Done — Collect Payment Later
           </button>
         </div>
       </div>
@@ -459,18 +470,19 @@ export default function CalendarPage() {
   function isToday(d) { return d === today.getDate() && month === today.getMonth() && year === today.getFullYear(); }
   function goToLead(id) { setCurrentPage('leads'); setTimeout(() => openPanel(id), 100); }
 
-  function handleComplete(booking, { amount, method, upsellAmount, upsellNotes }) {
-    // Update booking status + upsell fields
+  function handleComplete(booking, { amount, method, upsellAmount, upsellNotes, noPayment }) {
+    // Mark booking Completed. When no payment is taken, keep the existing amount
+    // (don't overwrite it with 0).
     updateCalBooking(booking.id, {
       bookingStatus: 'Completed',
-      amount,
+      ...(noPayment ? {} : { amount }),
       upsellAmount: upsellAmount || 0,
       upsellNotes:  upsellNotes || '',
     });
-    // Record payment (creates Revenue record, updates booking + lead paid state)
-    recordBookingPayment(booking.id, amount, method);
+    // Mark done; recordBookingPayment writes Revenue + paid ONLY when amount > 0
+    recordBookingPayment(booking.id, noPayment ? 0 : amount, method);
     // If there's an upsell, write a separate Revenue record for it
-    if (upsellAmount > 0) {
+    if (!noPayment && upsellAmount > 0) {
       createRecord(AT_TABLES.revenue, {
         'Revenue Name':   `${booking.clientName} - Upsell: ${upsellNotes || 'Extra Service'}`,
         'Date':           new Date().toISOString().split('T')[0],
