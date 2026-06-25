@@ -49,7 +49,9 @@ export default function InvoiceModal() {
       });
       if (!res?.success) throw new Error(res?.error || 'Send failed');
       showToast(test ? `Test invoice sent to ${recipient} ✓` : `Invoice #${res.invoiceNumber} sent ✓`);
-      closeInvoiceModal();
+      // Only the real send closes the modal. A test keeps it open so the owner can
+      // review the preview, then approve and do the actual send.
+      if (!test) closeInvoiceModal();
     } catch (e) {
       setErr(e.message || 'Send failed');
     } finally {

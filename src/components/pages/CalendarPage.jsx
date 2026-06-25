@@ -410,9 +410,9 @@ function BookingModal({ year, month, day, leads, clients = [], addCalBooking, on
 export default function CalendarPage() {
   const {
     leads, calBookings, clients,
-    saveJobDate, openPanel, setCurrentPage, changeStatus,
+    saveJobDate, openPanel, setCurrentPage,
     addCalBooking, removeCalBooking, updateCalBooking, recordBookingPayment,
-    showToast,
+    openInvoiceModal, showToast,
   } = useLeadsContext();
 
   const today = new Date();
@@ -470,7 +470,7 @@ export default function CalendarPage() {
   function isToday(d) { return d === today.getDate() && month === today.getMonth() && year === today.getFullYear(); }
   function goToLead(id) { setCurrentPage('leads'); setTimeout(() => openPanel(id), 100); }
 
-  function handleComplete(booking, { amount, method, upsellAmount, upsellNotes, noPayment }) {
+  async function handleComplete(booking, { amount, method, upsellAmount, upsellNotes, noPayment }) {
     // Mark booking Completed. When no payment is taken, keep the existing amount
     // (don't overwrite it with 0).
     updateCalBooking(booking.id, {
@@ -479,8 +479,9 @@ export default function CalendarPage() {
       upsellAmount: upsellAmount || 0,
       upsellNotes:  upsellNotes || '',
     });
-    // Mark done; recordBookingPayment writes Revenue + paid ONLY when amount > 0
-    recordBookingPayment(booking.id, noPayment ? 0 : amount, method);
+    // Mark done; recordBookingPayment writes Revenue + paid ONLY when amount > 0,
+    // syncs/creates the Job Done lead, and returns it so we can invoice.
+    const synced = await recordBookingPayment(booking.id, noPayment ? 0 : amount, method);
     // If there's an upsell, write a separate Revenue record for it
     if (!noPayment && upsellAmount > 0) {
       createRecord(AT_TABLES.revenue, {
@@ -495,16 +496,11 @@ export default function CalendarPage() {
         'Status':         'Job Done',
       });
     }
-    // Move the linked lead to Job Done status
-    const linkedLead = leads.find(l =>
-      (booking.linkedLeadId && l.id === booking.linkedLeadId) ||
-      (booking.phone && l.phone === booking.phone)
-    );
-    if (linkedLead && linkedLead.status !== 'job_done') {
-      changeStatus(linkedLead.id, 'job_done');
-    }
-    showToast('Job marked as done ✓ — Revenue recorded');
+    showToast(noPayment ? 'Job marked as done ✓' : 'Job marked as done ✓ — Revenue recorded');
     setEditBooking(null);
+    // Review & Send: pop the invoice preview for the completed lead (same as the
+    // Leads-table path), unless it has already been invoiced.
+    if (synced?.leadId && !synced.invoiceSent) openInvoiceModal(synced.leadId);
   }
 
   const selectedHasBookings = selectedDay && (byDay[selectedDay] || []).length > 0;

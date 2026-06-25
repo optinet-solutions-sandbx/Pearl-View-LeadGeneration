@@ -1040,6 +1040,8 @@ export function useLeads() {
         ? { ...l, status: 'job_done', progress: 100,
             ...(hasPayment ? { invoice: amt, paid: true, paidAmount: amt, paymentMethod } : {}) }
         : l));
+      // Return the lead so callers (Calendar) can pop the Review & Send invoice modal
+      return { leadId: match.id, invoiceSent: !!match.invoiceSent };
     } else {
       // Calendar-only job → create a Job Done lead so it shows in the column
       const jobType = VALID_JOB_TYPES.has(booking.service) ? booking.service : '';
@@ -1066,8 +1068,10 @@ export function useLeads() {
           paid: hasPayment, paidAmount: hasPayment ? amt : 0, paymentMethod: hasPayment ? paymentMethod : '',
           city: booking.city || '', leadChannel: '', leadSource: 'Other', invoiceNumber: null, invoiceSent: false,
         }, ...prev]);
+        return { leadId: newId, invoiceSent: false };
       }
     }
+    return null;
   }, [calBookings, leads, patchAirtable]);
 
   // ─── Archive a client (Status = 'Archived' in Airtable, moves to archivedClients) ──
