@@ -386,23 +386,34 @@ export function useLeads() {
     if (status === 'job_done' && currentLead?.paid && currentLead?.paidAmount > 0) {
       fetchRecords(AT_TABLES.revenue).then(revRecs => {
         const phone = (currentLead.phone || '').replace(/\s/g, '').toLowerCase();
+        const name  = (currentLead.name  || '').trim().toLowerCase();
+        // Match by phone; for phone-less leads fall back to Client Name (never match
+        // a blank phone against blank — that would hit an unrelated phone-less row).
         const match = revRecs.find(r => {
+          if (!(parseFloat(r.fields?.['Amount'] || 0) > 0)) return false;
           const rPhone = (r.fields?.['Phone'] || '').replace(/\s/g, '').toLowerCase();
-          return rPhone === phone && parseFloat(r.fields?.['Amount'] || 0) > 0;
+          const rName  = (r.fields?.['Client Name'] || '').trim().toLowerCase();
+          return phone ? rPhone === phone : (name && rName === name);
         });
         if (match) updateRecord(AT_TABLES.revenue, match.id, { 'Status': 'Job Done' });
       });
     }
-    // Mark linked calBooking as Completed when lead is set to Job Done
+    // Mark linked calBooking as Completed when lead is set to Job Done.
+    // Match by linked id, then phone, then NAME (name only for phone-less leads,
+    // mirroring recordBookingPayment/addCalBooking). Only touch ACTIVE bookings
+    // (skip already Completed/Cancelled) so a stale row isn't matched first.
     if (status === 'job_done') {
       const phone = (currentLead.phone || '').replace(/\s/g, '').toLowerCase();
+      const name  = (currentLead.name  || '').trim().toLowerCase();
       setCalBookings(prev => {
-        const linked = prev.find(b =>
+        const isActive = b => b.bookingStatus !== 'Completed' && b.bookingStatus !== 'Cancelled';
+        const linked = prev.find(b => isActive(b) && (
           b.id === currentLead.id ||
           (b.linkedLeadId && b.linkedLeadId === id) ||
-          (phone && (b.phone || '').replace(/\s/g, '').toLowerCase() === phone)
-        );
-        if (!linked || linked.bookingStatus === 'Completed') return prev;
+          (phone && (b.phone || '').replace(/\s/g, '').toLowerCase() === phone) ||
+          (!phone && name && (b.clientName || '').trim().toLowerCase() === name)
+        ));
+        if (!linked) return prev;
         if (linked.airtableId) {
           updateRecord(AT_TABLES.calendar, linked.airtableId, { 'Booking Status': 'Completed' });
         }

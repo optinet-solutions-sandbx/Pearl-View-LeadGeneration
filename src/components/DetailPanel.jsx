@@ -200,6 +200,7 @@ export default function DetailPanel() {
   const [payModalOpen,       setPayModalOpen]       = useState(false);
   const [quoteModalOpen,     setQuoteModalOpen]     = useState(false);
   const [paymentSaving,     setPaymentSaving]     = useState(false);
+  const [confirmDeletePay,  setConfirmDeletePay]  = useState(false);
   const nameInputRef  = useRef(null);
   const cityInputRef  = useRef(null);
   const emailInputRef = useRef(null);
@@ -209,6 +210,7 @@ export default function DetailPanel() {
     setEditingName(false);
     setEditingCity(false);
     setEditingEmail(false);
+    setConfirmDeletePay(false);
     if (l) {
       setNoteText(l.notes || '');
       setPaidAmount(l.paidAmount || '');
@@ -263,7 +265,7 @@ export default function DetailPanel() {
     await sendQuoteAndChangeStatus(l.id, amount);
   }
   function handleJobDone()         { changeStatus(l.id, 'job_done'); }
-  function handleDeletePayment()   { deletePayment(l.id); }
+  function handleDeletePayment()   { deletePayment(l.id); setConfirmDeletePay(false); }
 
   function startEditName() { setEditNameVal(l.name); setEditingName(true); }
   function saveName() { const t = editNameVal.trim() || l.name; renameLead(l.id, t); setEditingName(false); }
@@ -519,10 +521,31 @@ export default function DetailPanel() {
                   Edit
                 </button>
               </div>
-              {/* Delete only available before job_done — no job should be recorded as free */}
-              {l.status !== 'job_done' && (
+              {/* Delete payment — available even on Job Done leads so a mistaken
+                  payment can be undone. Two-step inline confirm to prevent accidents. */}
+              {confirmDeletePay ? (
+                <div style={{ borderTop: '1px solid #dcfce7', marginTop: '4px', paddingTop: '8px' }}>
+                  <div style={{ fontSize: '11.5px', color: '#b45309', marginBottom: '6px', textAlign: 'center' }}>
+                    Remove this payment? The job will show as <strong>unpaid</strong>.
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      onClick={handleDeletePayment}
+                      style={{ flex: 1, padding: '7px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '11.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >
+                      Yes, mark unpaid
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeletePay(false)}
+                      style={{ flex: 1, padding: '7px', background: '#fff', color: 'var(--gray-600)', border: '1px solid var(--gray-200)', borderRadius: '6px', fontSize: '11.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
                 <button
-                  onClick={handleDeletePayment}
+                  onClick={() => setConfirmDeletePay(true)}
                   style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', width: '100%', padding: '6px', background: 'transparent', color: '#dc2626', border: 'none', borderTop: '1px solid #dcfce7', marginTop: '4px', fontSize: '11.5px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
                 >
                   <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" style={{ width: '12px', height: '12px' }}>
