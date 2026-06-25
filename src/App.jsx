@@ -11,6 +11,7 @@ import QuoteSendModal from './components/QuoteSendModal';
 import InvoiceModal from './components/InvoiceModal';
 import Toast from './components/Toast';
 import LoadingOverlay from './components/LoadingOverlay';
+import TutorialTour from './components/Tutorial/TutorialTour';
 import LeadsPage from './components/pages/LeadsPage';
 import OverviewPage from './components/pages/OverviewPage';
 import ClientsPage from './components/pages/ClientsPage';
@@ -81,6 +82,7 @@ function Dashboard() {
       <QuoteSendModal />
       <InvoiceModal />
       <Toast />
+      <TutorialTour />
       <MobileBottomNav />
       {/* FAB — mobile-only, Leads page only */}
       {currentPage === 'leads' && (

@@ -95,6 +95,7 @@ export default function Sidebar() {
   const navItem = (page, label, icon) => (
     <div
       className={`nav-item${currentPage === page ? ' active' : ''}`}
+      data-tour={`nav-${page}`}
       onClick={() => navigate(page)}
     >
       {icon}
@@ -125,7 +126,7 @@ export default function Sidebar() {
             <span className="logo-sub">Lead Management</span>
           </div>
         </div>
-        <nav className="nav">
+        <nav className="nav" data-tour="sidebar">
           <div className="nav-lbl">Main</div>
           {navItem('overview', 'Overview',
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">

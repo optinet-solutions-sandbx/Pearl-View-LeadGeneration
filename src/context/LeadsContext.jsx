@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useLeads } from '../hooks/useLeads';
 
 const LeadsContext = createContext(null);
@@ -22,6 +22,11 @@ export function LeadsProvider({ children }) {
   const [isModalOpen, setModalOpen]   = useState(false);
   const [statFilter, setStatFilter]   = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Guided tutorial (spotlight tour) state
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  const startTutorial = useCallback(() => setTutorialOpen(true), []);
+  const stopTutorial  = useCallback(() => setTutorialOpen(false), []);
 
   // Refuse modal state
   const [refuseModalId, setRefuseModalId]             = useState(null);
@@ -85,6 +90,19 @@ export function LeadsProvider({ children }) {
 
   const toggleSidebar = useCallback(() => setSidebarOpen(v => !v), []);
   const closeSidebar  = useCallback(() => setSidebarOpen(false), []);
+
+  // Auto-launch the tutorial once for a brand-new user, after the first data
+  // load finishes so the real UI is on screen to be highlighted.
+  const autoTourFired = useRef(false);
+  useEffect(() => {
+    if (autoTourFired.current || isLoading) return;
+    let seen = false;
+    try { seen = !!localStorage.getItem('pvl_tutorial_done'); } catch { /* ignore */ }
+    if (seen) { autoTourFired.current = true; return; }
+    autoTourFired.current = true;
+    const t = setTimeout(() => setTutorialOpen(true), 900);
+    return () => clearTimeout(t);
+  }, [isLoading]);
 
   // Central status change handler — enforces all business rules:
   // 1. 'refused'        → show RefuseModal first
@@ -384,6 +402,9 @@ export function LeadsProvider({ children }) {
       sidebarOpen,
       toggleSidebar,
       closeSidebar,
+      tutorialOpen,
+      startTutorial,
+      stopTutorial,
       refuseModalId,
       refuseModalPrevStatus,
       confirmRefuse,

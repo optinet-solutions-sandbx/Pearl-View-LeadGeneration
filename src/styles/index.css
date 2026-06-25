@@ -1760,3 +1760,184 @@ body.keyboard-open .fab              { display: none !important; }
     max-width: 140px;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Guided tutorial — spotlight tour
+   ════════════════════════════════════════════════════════════════════════════ */
+.tour-root {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;            /* above modals (200) and toasts (999) */
+  pointer-events: none;     /* children opt back in as needed */
+}
+
+/* Full-screen click-catcher. Transparent over spotlight steps (the spotlight
+   box-shadow does the dimming); dims the whole screen on centered steps. */
+.tour-overlay {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  pointer-events: auto;
+}
+.tour-overlay.dim { background: rgba(0, 0, 0, 0.55); }
+
+/* The cut-out: a transparent box over the target whose huge box-shadow
+   darkens everything around it. */
+.tour-spotlight {
+  position: fixed;
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.58);
+  pointer-events: none;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* The explanation card */
+.tour-tooltip {
+  position: fixed;
+  width: min(360px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  background: var(--white);
+  border-radius: 14px;
+  padding: 18px 18px 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  pointer-events: auto;
+  font-family: 'Montserrat', 'Inter', system-ui, sans-serif;
+  animation: tour-pop 0.22s ease;
+}
+@keyframes tour-pop {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.tour-counter {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 6px;
+}
+.tour-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--gray-900);
+  line-height: 1.25;
+  margin-bottom: 7px;
+}
+.tour-body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--gray-600);
+}
+
+.tour-bullets {
+  list-style: none;
+  margin: 11px 0 2px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.tour-bullets li {
+  position: relative;
+  padding-left: 16px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--gray-600);
+}
+.tour-bullets li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary-lt);
+}
+.tour-bullet-label {
+  font-weight: 800;
+  color: var(--gray-800);
+}
+
+.tour-tip {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 12px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: var(--blue-50);
+  border: 1px solid var(--blue-100);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--gray-700);
+}
+.tour-tip svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--primary);
+}
+
+.tour-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 14px 0 12px;
+}
+.tour-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gray-200);
+  transition: all 0.2s ease;
+}
+.tour-dot.active {
+  background: var(--primary);
+  width: 18px;
+  border-radius: 3px;
+}
+
+.tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tour-actions-right { display: flex; gap: 8px; }
+
+.tour-btn {
+  border: 1px solid var(--gray-200);
+  background: var(--white);
+  color: var(--gray-700);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 9px 16px;
+  border-radius: 9px;
+  cursor: pointer;
+  min-height: 40px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.tour-btn:hover { background: var(--gray-50); }
+.tour-btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.tour-btn-primary:hover { background: var(--primary-dk); }
+.tour-btn-ghost {
+  border-color: transparent;
+  color: var(--gray-400);
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.tour-btn-ghost:hover { background: transparent; color: var(--gray-600); }
+
+@media (max-width: 520px) {
+  .tour-tooltip { padding: 16px 15px 12px; }
+  .tour-title { font-size: 16px; }
+}

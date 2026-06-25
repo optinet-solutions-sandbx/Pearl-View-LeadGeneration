@@ -276,6 +276,7 @@ export default function KanbanBoard() {
         /* ── Kanban board — shown when no filter/column is selected ── */
         <div
           className="board"
+          data-tour="pipeline"
           ref={boardRef}
           onMouseDown={e => {
             if (window.innerWidth > 1338) return;

@@ -35,7 +35,7 @@ export default function TopBar() {
   const {
     currentPage, searchTerm, setSearchTerm,
     setModalOpen, toggleSidebar, refetch,
-    leads, openPanel, setCurrentPage,
+    leads, openPanel, setCurrentPage, startTutorial,
   } = useLeadsContext();
 
   // Persists within the same calendar day; resets automatically each new day
@@ -109,7 +109,7 @@ export default function TopBar() {
         </svg>
       </button>
       <span className="topbar-title">{title}</span>
-      <div className="search-wrap">
+      <div className="search-wrap" data-tour="search">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
           <circle cx="11" cy="11" r="8"/>
           <path d="M21 21l-4.35-4.35"/>
@@ -137,7 +137,22 @@ export default function TopBar() {
             <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
           </svg>
         </button>
-        <button className="btn-new" onClick={() => setModalOpen(true)}>
+        {/* Help / tutorial */}
+        <button
+          className="notif-btn"
+          data-tour="help"
+          title="App tutorial"
+          onClick={startTutorial}
+        >
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+               style={{ width: '16px', height: '16px' }}>
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </button>
+
+        <button className="btn-new" data-tour="new-lead" onClick={() => setModalOpen(true)}>
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ width: '14px', height: '14px' }}>
             <path d="M12 5v14M5 12h14"/>
           </svg>
@@ -145,7 +160,7 @@ export default function TopBar() {
         </button>
 
         {/* Notification bell */}
-        <div className="notif-wrap" ref={notifsRef}>
+        <div className="notif-wrap" data-tour="notifications" ref={notifsRef}>
           <button
             className="notif-btn"
             onClick={handleBellClick}

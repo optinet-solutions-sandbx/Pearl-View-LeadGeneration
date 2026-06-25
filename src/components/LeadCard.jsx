@@ -207,6 +207,7 @@ export default function LeadCard({ lead }) {
       {/* ── Card ── */}
       <div
         className={`card${isActive ? ' active' : ''}`}
+        data-tour="lead-card"
         draggable
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
