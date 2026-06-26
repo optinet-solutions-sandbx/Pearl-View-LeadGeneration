@@ -4,13 +4,14 @@ import { createRecord, deleteRecord, fetchRecords, AT_TABLES } from '../../utils
 
 
 const CAT_COLORS = {
-  'Salary - Employee 1':        { bg: '#eff6ff', color: '#2563eb' },
-  'Salary - Employee 2':        { bg: '#eff6ff', color: '#2563eb' },
-  'Salary - Employee 3':        { bg: '#eff6ff', color: '#2563eb' },
-  'Salary - Employee 4':        { bg: '#eff6ff', color: '#2563eb' },
+  'Salary - Brad':               { bg: '#eff6ff', color: '#2563eb' },
+  'Salary - Alon':               { bg: '#eff6ff', color: '#2563eb' },
+  'Salary - Yuvi':               { bg: '#eff6ff', color: '#2563eb' },
+  'Salary - Rahda':              { bg: '#eff6ff', color: '#2563eb' },
   'Fuel':                        { bg: '#fff7ed', color: '#c2410c' },
   'Cleaning Supplies/Equipment': { bg: '#f0fdf4', color: '#15803d' },
   'Advertising':                 { bg: '#fdf4ff', color: '#9333ea' },
+  'Marketing':                   { bg: '#fdf2f8', color: '#db2777' },
   'Insurance':                   { bg: '#fef9c3', color: '#a16207' },
   'General':                     { bg: '#f1f5f9', color: '#475569' },
 };

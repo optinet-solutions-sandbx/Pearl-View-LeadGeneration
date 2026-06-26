@@ -54,13 +54,14 @@ export const REFUSE_LABELS = {
 };
 
 export const EXPENSE_CATEGORIES = [
-  'Salary - Employee 1',
-  'Salary - Employee 2',
-  'Salary - Employee 3',
-  'Salary - Employee 4',
+  'Salary - Brad',
+  'Salary - Alon',
+  'Salary - Yuvi',
+  'Salary - Rahda',
   'Fuel',
   'Cleaning Supplies/Equipment',
   'Advertising',
+  'Marketing',
   'Insurance',
   'General',
 ];
