@@ -251,14 +251,33 @@ const FC = {
   prof: { stroke: '#15803d', label: 'Profit',   dot: '#4ade80' },
 };
 
+// Straight-line path (no spline overshoot — accurate for spiky daily data).
+function linePath(pts) {
+  if (!pts || !pts.length) return '';
+  return 'M' + pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' L');
+}
+
 function FinanceChart({ periods }) {
   const incRef     = useRef(null);
   const expRef     = useRef(null);
   const profRef    = useRef(null);
   const areaGrpRef = useRef(null);
+  const wrapRef    = useRef(null);
   const [hoverIdx, setHoverIdx] = useState(null);
+  const [W, setW]  = useState(640);
 
-  const W = 320, H = 160, PL = 4, PR = 4, PT = 26, PB = 26;
+  // Measure the container so the SVG viewBox matches its pixel width 1:1 →
+  // no horizontal distortion (the old preserveAspectRatio="none" stretched it).
+  useEffect(() => {
+    const el = wrapRef.current; if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(es => { const w = es[0]?.contentRect?.width; if (w) setW(Math.round(w)); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const narrow = W < 480;
+  const H = narrow ? 190 : 230;
+  const PL = 8, PR = 10, PT = 30, PB = 26;
   const cW = W - PL - PR, cH = H - PT - PB;
   const floorY = PT + cH;
 
@@ -304,9 +323,9 @@ function FinanceChart({ periods }) {
   const expPts  = periods.map((p, i) => [xOf(i), yOf(p.exp)]);
   const profPts = periods.map((p, i) => [xOf(i), yOf(Math.max(0, p.income - p.exp))]);
 
-  const incLine  = smoothPath(incPts);
-  const expLine  = smoothPath(expPts);
-  const profLine = smoothPath(profPts);
+  const incLine  = linePath(incPts);
+  const expLine  = linePath(expPts);
+  const profLine = linePath(profPts);
   const mkArea   = line => line ? `${line} L${xOf(n-1).toFixed(1)},${floorY} L${xOf(0).toFixed(1)},${floorY} Z` : '';
 
   const yTicks = Array.from({ length: 5 }, (_, i) => {
@@ -314,7 +333,9 @@ function FinanceChart({ periods }) {
     return { y: yOf(v), label: v >= 1000 ? `$${(v/1000).toFixed(v%1000===0?0:1)}k` : `$${Math.round(v)}` };
   });
 
-  const labelEvery = n <= 31 ? 1 : n <= 60 ? 2 : Math.ceil(n / 12);
+  // Responsive x-axis labels: fit roughly one label per ~46px of width.
+  const maxLabels  = Math.max(4, Math.floor(cW / 46));
+  const labelEvery = Math.max(1, Math.ceil(n / maxLabels));
   const hX     = hoverIdx !== null ? xOf(hoverIdx) : null;
   const hP     = hoverIdx !== null ? periods[hoverIdx] : null;
   const tipPct = hoverIdx !== null ? ((PL + (hoverIdx / Math.max(n-1,1)) * cW) / W * 100) : 50;
@@ -341,7 +362,7 @@ function FinanceChart({ periods }) {
         {!hasData && <div style={{ fontSize: '10px', color: 'var(--gray-400)', marginTop: '4px' }}>No data — add revenue or expenses</div>}
       </div>
 
-      <div style={{ position: 'relative' }}>
+      <div ref={wrapRef} style={{ position: 'relative' }}>
         {hoverIdx !== null && hP && (
           <div style={{
             position: 'absolute', top: '2px', zIndex: 20, pointerEvents: 'none',
@@ -361,9 +382,8 @@ function FinanceChart({ periods }) {
           </div>
         )}
 
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="200"
-          preserveAspectRatio="none"
-          style={{ display: 'block', cursor: 'crosshair', overflow: 'hidden' }}
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}
+          style={{ display: 'block', cursor: 'crosshair', overflow: 'visible' }}
           onMouseMove={onMove} onMouseLeave={() => setHoverIdx(null)}
         >
           <defs>
@@ -385,10 +405,10 @@ function FinanceChart({ periods }) {
           {yTicks.map((t, i) => (
             <g key={i}>
               <line x1={PL} y1={t.y} x2={W - PR} y2={t.y} stroke={i === 0 ? '#e2e8f0' : '#f1f5f9'} strokeWidth="0.8" />
-              <text
-                x={PL + 4} y={i === 0 ? t.y - 3 : t.y - 3}
-                textAnchor="start" fontSize="8" fontWeight="500" fill="#94a3b8"
-              >{t.label}</text>
+              {/* skip the very top label so it never crowds the legend above */}
+              {i < yTicks.length - 1 && (
+                <text x={PL + 4} y={t.y - 4} textAnchor="start" fontSize="11" fontWeight="500" fill="#94a3b8">{t.label}</text>
+              )}
             </g>
           ))}
 
@@ -406,9 +426,9 @@ function FinanceChart({ periods }) {
             <text
               key={i}
               x={xOf(i).toFixed(1)}
-              y={H - 5}
+              y={H - 7}
               textAnchor={i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}
-              fontSize="7.5"
+              fontSize="11"
               fill="#94a3b8"
             >{p.label}</text>
           ) : null)}
