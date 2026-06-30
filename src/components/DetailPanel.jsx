@@ -464,9 +464,9 @@ export default function DetailPanel() {
         {/* Job Details */}
         <div className="psec">
           <div className="psec-title">Job Details</div>
-          <div className="jrow" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <span className="jlbl" style={{ paddingTop: '4px' }}>Job Type</span>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', flex: 1, justifyContent: 'flex-end' }}>
+          <div style={{ padding: '4px 0' }}>
+            <div className="jlbl" style={{ marginBottom: '8px' }}>Job Type</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {['Window Cleaning', 'Pressure Washing', 'Solar Panel', 'Other'].map(svc => {
                 const selected = (l.jobTypes || []).includes(svc);
                 return (
@@ -479,14 +479,16 @@ export default function DetailPanel() {
                       saveJobType(l.id, next);
                     }}
                     style={{
-                      fontSize: '12px', padding: '4px 10px', borderRadius: '20px', cursor: 'pointer', fontFamily: 'inherit',
+                      display: 'inline-flex', alignItems: 'center', gap: '5px',
+                      fontSize: '12px', lineHeight: 1, padding: '8px 12px', borderRadius: '8px',
+                      cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all .12s',
                       border: selected ? '1px solid var(--primary)' : '1px solid var(--gray-200)',
                       background: selected ? 'var(--primary)' : '#fff',
                       color: selected ? '#fff' : 'var(--gray-600)',
                       fontWeight: selected ? 600 : 500,
                     }}
                   >
-                    {selected ? '✓ ' : ''}{svc}
+                    {selected && <span style={{ fontSize: '11px' }}>✓</span>}{svc}
                   </button>
                 );
               })}
