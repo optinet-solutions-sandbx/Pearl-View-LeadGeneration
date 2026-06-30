@@ -388,16 +388,16 @@ function FinanceChart({ periods }) {
         >
           <defs>
             <linearGradient id="fc-inc-g" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stopColor="#2563eb" stopOpacity="0.45" />
-              <stop offset="100%" stopColor="#2563eb" stopOpacity="0.02" />
+              <stop offset="0%"   stopColor="#2563eb" stopOpacity="0.14" />
+              <stop offset="100%" stopColor="#2563eb" stopOpacity="0" />
             </linearGradient>
             <linearGradient id="fc-exp-g" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stopColor="#f43f5e" stopOpacity="0.40" />
-              <stop offset="100%" stopColor="#f43f5e" stopOpacity="0.02" />
+              <stop offset="0%"   stopColor="#f43f5e" stopOpacity="0.12" />
+              <stop offset="100%" stopColor="#f43f5e" stopOpacity="0" />
             </linearGradient>
             <linearGradient id="fc-prof-g" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stopColor="#15803d" stopOpacity="0.38" />
-              <stop offset="100%" stopColor="#15803d" stopOpacity="0.02" />
+              <stop offset="0%"   stopColor="#15803d" stopOpacity="0.13" />
+              <stop offset="100%" stopColor="#15803d" stopOpacity="0" />
             </linearGradient>
           </defs>
 
