@@ -11,6 +11,8 @@
  *   VITE_AIRTABLE_REFUSED_TABLE_ID   — Table ID/name for Refused
  */
 
+import { USE_SUPABASE, sbCreate, sbUpdate, sbDelete, sbFetch } from './supabaseClient';
+
 const IS_LOCAL = import.meta.env.DEV;
 const AT_TOKEN = import.meta.env.VITE_AIRTABLE_TOKEN || '';
 const AT_BASE  = import.meta.env.VITE_AIRTABLE_BASE_ID || '';
@@ -28,6 +30,7 @@ export const AT_TABLES = {
 // Returns an array of raw Airtable record objects: [{ id, fields }, ...]
 export async function fetchRecords(tableId) {
   if (!tableId) return [];
+  if (USE_SUPABASE) return sbFetch(tableId);
   const allRecords = [];
   let offset = '';
   try {
@@ -57,6 +60,7 @@ export async function fetchRecords(tableId) {
 // Returns the new Airtable record ID, or null on failure.
 export async function createRecord(tableId, fields) {
   if (!tableId) return null;
+  if (USE_SUPABASE) return sbCreate(tableId, fields);
   try {
     if (IS_LOCAL) {
       const res = await fetch(`https://api.airtable.com/v0/${AT_BASE}/${encodeURIComponent(tableId)}`, {
@@ -86,6 +90,7 @@ export async function createRecord(tableId, fields) {
 // ─── Update fields on an existing record (fire-and-forget) ───────────────────
 export function updateRecord(tableId, recordId, fields) {
   if (!tableId || !recordId) return;
+  if (USE_SUPABASE) { sbUpdate(tableId, recordId, fields); return; }
   if (IS_LOCAL) {
     fetch(`https://api.airtable.com/v0/${AT_BASE}/${encodeURIComponent(tableId)}/${recordId}`, {
       method: 'PATCH',
@@ -106,6 +111,7 @@ export function updateRecord(tableId, recordId, fields) {
 // ─── Delete a record (returns Promise so callers can await if needed) ────────
 export function deleteRecord(tableId, recordId) {
   if (!tableId || !recordId) return Promise.resolve();
+  if (USE_SUPABASE) return sbDelete(tableId, recordId);
   if (IS_LOCAL) {
     return fetch(`https://api.airtable.com/v0/${AT_BASE}/${encodeURIComponent(tableId)}/${recordId}`, {
       method: 'DELETE',

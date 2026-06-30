@@ -1,5 +1,7 @@
 import { LeadsProvider, useLeadsContext } from './context/LeadsContext';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { USE_SUPABASE, hasSession, refreshSession } from './utils/supabaseClient';
+import LoginPage from './components/LoginPage';
 import Sidebar, { MobileBottomNav } from './components/Sidebar';
 import TopBar from './components/TopBar';
 import DetailPanel from './components/DetailPanel';
@@ -21,6 +23,7 @@ import ExpensesPage from './components/pages/ExpensesPage';
 import ReportsPage from './components/pages/ReportsPage';
 import ContactsPage from './components/pages/ContactsPage';
 import BroadcastPage from './components/pages/BroadcastPage';
+import BookingPage from './components/BookingPage';
 
 function PageBody() {
   const { currentPage } = useLeadsContext();
@@ -96,7 +99,28 @@ function Dashboard() {
   );
 }
 
+// Login gate (only when Supabase is the backend). Tries a token refresh on load
+// so a returning owner stays signed in; otherwise shows the login screen.
+function AuthGate() {
+  const [state, setState] = useState(hasSession() ? 'in' : 'checking');
+  useEffect(() => {
+    if (state === 'checking') {
+      refreshSession().then(ok => setState(ok ? 'in' : 'out'));
+    }
+  }, [state]);
+  if (state === 'checking') return null;
+  if (state !== 'in') return <LoginPage onSuccess={() => setState('in')} />;
+  return <LeadsProvider><Dashboard /></LeadsProvider>;
+}
+
 export default function App() {
+  // Public, login-free client booking page — rendered standalone WITHOUT the
+  // dashboard or LeadsProvider (no data loaded for clients).
+  if (typeof window !== 'undefined' && window.location.pathname.replace(/\/$/, '') === '/book') {
+    return <BookingPage />;
+  }
+  // Supabase backend → require login. (Airtable mode stays open as before.)
+  if (USE_SUPABASE) return <AuthGate />;
   return (
     <LeadsProvider>
       <Dashboard />

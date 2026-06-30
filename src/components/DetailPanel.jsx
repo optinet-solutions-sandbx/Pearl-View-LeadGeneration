@@ -464,19 +464,33 @@ export default function DetailPanel() {
         {/* Job Details */}
         <div className="psec">
           <div className="psec-title">Job Details</div>
-          <div className="jrow" style={{ alignItems: 'center' }}>
-            <span className="jlbl">Job Type</span>
-            <select
-              value={l.jobType || ''}
-              onChange={e => saveJobType(l.id, e.target.value)}
-              style={{ fontSize: '12px', padding: '4px 8px', border: '1px solid var(--gray-200)', borderRadius: '6px', fontFamily: 'inherit', background: '#fff', color: 'var(--gray-700)', outline: 'none', flex: 1 }}
-            >
-              <option value="">— Select —</option>
-              <option value="Window Cleaning">Window Cleaning</option>
-              <option value="Pressure Washing">Pressure Washing</option>
-              <option value="Solar Panel">Solar Panel</option>
-              <option value="Other">Other</option>
-            </select>
+          <div className="jrow" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <span className="jlbl" style={{ paddingTop: '4px' }}>Job Type</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', flex: 1, justifyContent: 'flex-end' }}>
+              {['Window Cleaning', 'Pressure Washing', 'Solar Panel', 'Other'].map(svc => {
+                const selected = (l.jobTypes || []).includes(svc);
+                return (
+                  <button
+                    key={svc}
+                    type="button"
+                    onClick={() => {
+                      const cur = l.jobTypes || [];
+                      const next = selected ? cur.filter(s => s !== svc) : [...cur, svc];
+                      saveJobType(l.id, next);
+                    }}
+                    style={{
+                      fontSize: '12px', padding: '4px 10px', borderRadius: '20px', cursor: 'pointer', fontFamily: 'inherit',
+                      border: selected ? '1px solid var(--primary)' : '1px solid var(--gray-200)',
+                      background: selected ? 'var(--primary)' : '#fff',
+                      color: selected ? '#fff' : 'var(--gray-600)',
+                      fontWeight: selected ? 600 : 500,
+                    }}
+                  >
+                    {selected ? '✓ ' : ''}{svc}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div style={{ padding: '4px 0' }}>
             <div className="jlbl" style={{ marginBottom: '4px' }}>Subject</div>

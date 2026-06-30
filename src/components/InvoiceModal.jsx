@@ -4,36 +4,63 @@ import { useLeadsContext } from '../context/LeadsContext';
 const mlbl = { fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--gray-500)', marginBottom: '6px', display: 'block' };
 const inp  = { width: '100%', padding: '10px 12px', fontSize: '14px', border: '1.5px solid var(--gray-200)', borderRadius: '8px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' };
 
+// Known services — offered as quick-pick suggestions for line descriptions.
+const SERVICE_SUGGESTIONS = ['Window Cleaning', 'Pressure Washing', 'Solar Panel', 'Other'];
+
 export default function InvoiceModal() {
   const { invoiceModalLead, sendInvoice, closeInvoiceModal, showToast } = useLeadsContext();
 
   const [to, setTo]               = useState('');
   const [project, setProject]     = useState('');
-  const [description, setDescription] = useState('');
-  const [amount, setAmount]       = useState('');
+  // Each invoice can now carry multiple service line items ({ description, amount }).
+  const [lineItems, setLineItems] = useState([{ description: '', amount: '' }]);
   const [testEmail, setTestEmail] = useState('');
   const [busy, setBusy]           = useState(false);
   const [err, setErr]             = useState('');
 
   const lead = invoiceModalLead;
 
+  // Initialise the form ONLY when a different lead is opened — keyed on the
+  // stable lead id, NOT the lead object. The 30s background poll replaces the
+  // lead object reference every cycle; depending on `lead` here would re-run
+  // this effect and wipe whatever the owner is typing. (Bug fix.)
   useEffect(() => {
     if (!lead) return;
     setTo(lead.email || '');
     setProject(lead.address || '');
-    setDescription(lead.jobType || 'window cleaning');
-    setAmount(String(lead.invoice || lead.value || ''));
+    // Pre-fill one line per selected service. The lead's quoted/invoice value
+    // goes on the first line; extra services start blank for the owner to price.
+    const jobs = (lead.jobTypes && lead.jobTypes.length)
+      ? lead.jobTypes
+      : [lead.jobType || 'window cleaning'];
+    setLineItems(jobs.map((j, idx) => ({
+      description: j,
+      amount: idx === 0 ? String(lead.invoice || lead.value || '') : '',
+    })));
     setTestEmail(lead.email || '');
     setErr('');
-  }, [lead]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lead?.id]);
 
   if (!lead) return null;
 
   const alreadySent = lead.invoiceSent;
 
+  const subtotal = lineItems.reduce((s, li) => s + (parseFloat(li.amount) || 0), 0);
+  const gst = subtotal * 0.1;       // GST added 10% on top (amounts are GST-exclusive)
+  const total = subtotal + gst;     // total due, GST inclusive
+
+  const updateLine = (i, field, value) =>
+    setLineItems(prev => prev.map((li, idx) => (idx === i ? { ...li, [field]: value } : li)));
+  const addLine    = () => setLineItems(prev => [...prev, { description: '', amount: '' }]);
+  const removeLine = i => setLineItems(prev => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev));
+
   async function fire(test) {
-    const amt = parseFloat(amount);
-    if (!test && (!amt || amt <= 0)) { setErr('Enter a valid invoice amount'); return; }
+    // Drop blank/zero rows; only real, priced services go on the invoice.
+    const clean = lineItems
+      .map(li => ({ description: (li.description || '').trim(), amount: parseFloat(li.amount) || 0 }))
+      .filter(li => li.description && li.amount > 0);
+    if (!test && (clean.length === 0 || total <= 0)) { setErr('Add at least one service with an amount'); return; }
     const recipient = test ? testEmail : to;
     if (!recipient) { setErr('Recipient email is required'); return; }
     setErr(''); setBusy(true);
@@ -43,8 +70,9 @@ export default function InvoiceModal() {
         to: recipient,
         clientName: lead.name,
         project,
-        description,
-        amount: amt || 0,
+        lineItems: clean,
+        description: clean[0]?.description || '', // back-compat: single-line fallback on the backend
+        amount: total,
         test,
       });
       if (!res?.success) throw new Error(res?.error || 'Send failed');
@@ -86,14 +114,47 @@ export default function InvoiceModal() {
           <label style={mlbl}>Service address / project</label>
           <input style={{ ...inp, marginBottom: '12px' }} value={project} onChange={e => setProject(e.target.value)} placeholder="e.g. 1114 Gold Coast Hwy, Palm Beach" />
 
-          <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
-            <div style={{ flex: 2 }}>
-              <label style={mlbl}>Description</label>
-              <input style={inp} value={description} onChange={e => setDescription(e.target.value)} placeholder="window cleaning" />
+          <datalist id="invoice-service-options">
+            {SERVICE_SUGGESTIONS.map(s => <option key={s} value={s} />)}
+          </datalist>
+
+          <label style={mlbl}>Services</label>
+          {lineItems.map((li, i) => (
+            <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+              <input
+                style={{ ...inp, flex: 2 }}
+                list="invoice-service-options"
+                value={li.description}
+                onChange={e => updateLine(i, 'description', e.target.value)}
+                placeholder="e.g. Window Cleaning"
+              />
+              <input
+                style={{ ...inp, flex: 1, minWidth: 0 }}
+                type="number"
+                value={li.amount}
+                onChange={e => updateLine(i, 'amount', e.target.value)}
+                placeholder="0.00"
+              />
+              <button
+                type="button"
+                onClick={() => removeLine(i)}
+                disabled={lineItems.length === 1}
+                title="Remove line"
+                style={{ flex: '0 0 auto', width: '34px', height: '38px', background: 'none', border: '1.5px solid var(--gray-200)', borderRadius: '8px', cursor: lineItems.length === 1 ? 'not-allowed' : 'pointer', color: 'var(--gray-400)', fontSize: '15px', fontFamily: 'inherit' }}
+              >✕</button>
             </div>
-            <div style={{ flex: 1 }}>
-              <label style={mlbl}>Amount ($)</label>
-              <input style={inp} type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
+          ))}
+
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '14px' }}>
+            <button
+              type="button"
+              onClick={addLine}
+              style={{ background: 'none', border: 'none', color: '#0f766e', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', padding: '4px 0' }}
+            >+ Add line</button>
+            <div style={{ fontSize: '13px', color: 'var(--gray-600)', textAlign: 'right', minWidth: '160px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Subtotal</span><span>${subtotal.toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}><span>GST (10%)</span><span>${gst.toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', paddingTop: '4px', borderTop: '1px solid var(--gray-200)', color: 'var(--gray-900)', fontWeight: 700 }}><span>Total</span><span>${total.toFixed(2)}</span></div>
             </div>
           </div>
 

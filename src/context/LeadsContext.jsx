@@ -256,9 +256,12 @@ export function LeadsProvider({ children }) {
 
   const handleSaveJobType = useCallback((id, jobType) => {
     saveJobType(id, jobType);
-    // Sync to Clients table
+    // Sync the primary job type to the Clients table (Clients 'Property Type'
+    // stays single-select — only the lead carries the full multi-selection).
+    const arr = Array.isArray(jobType) ? jobType : (jobType ? [jobType] : []);
+    const primary = arr[0] || '';
     const lead = leads.find(l => l.id === id);
-    if (lead?.phone) syncToClients(lead.phone, { 'Property Type': jobType }, { jobType });
+    if (lead?.phone) syncToClients(lead.phone, { 'Property Type': primary }, { jobType: primary, jobTypes: arr });
   }, [saveJobType, leads, syncToClients]);
 
   const handleSavePaidInfo = useCallback(async (id, paid, paidAmount, paymentMethod) => {

@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { STATUS_MAP, AT_STATUS_MAP, PROG_MAP } from '../utils/constants';
 import { parseDate } from '../utils/dateUtils';
 import { createRecord, updateRecord, deleteRecord, fetchRecords, AT_TABLES } from '../utils/airtableSync';
+import { USE_SUPABASE, sbSelect, sbPatchLead, sbLeadRowToRecord, sbBookingRowToRecord, sbClientRowToRecord } from '../utils/supabaseClient';
 
 const VALID_JOB_TYPES = new Set(['Window Cleaning', 'Pressure Washing', 'Solar Panel', 'Other']);
 
@@ -112,6 +113,13 @@ function normaliseRecord(rec) {
     dateObj: parseDate(rawDate),
     address: f['Adress'] || f['Service Address'] || '',
     jobType: VALID_JOB_TYPES.has(f['Property Type']) ? f['Property Type'] : '',
+    // Multi-select services (Airtable 'Services' multiple-select). Falls back to
+    // the single Property Type so existing leads still show their one job type.
+    jobTypes: (() => {
+      const svc = Array.isArray(f['Services']) ? f['Services'].filter(s => VALID_JOB_TYPES.has(s)) : [];
+      if (svc.length) return svc;
+      return VALID_JOB_TYPES.has(f['Property Type']) ? [f['Property Type']] : [];
+    })(),
     windows: f['Estimated Window Count'] || 0,
     stories: f['Stories'] || 0,
     value: f['Quote Amount'] || 0,
@@ -225,6 +233,10 @@ export function useLeads() {
     const logFields = Object.keys(fields).join(', ');
     writeEpoch.current++;   // signal that a write is starting
     pendingWrites.current++;
+    // Supabase path: PATCH leads by UUID, returns {id, fields} like Airtable did.
+    if (USE_SUPABASE) {
+      return sbPatchLead(airtableId, fields).finally(() => { pendingWrites.current--; });
+    }
     const req = IS_LOCAL
       ? fetch(`https://api.airtable.com/v0/${AT_BASE}/${AT_TABLE}/${airtableId}`, {
           method: 'PATCH',
@@ -260,6 +272,41 @@ export function useLeads() {
     const epochAtStart = writeEpoch.current;
     if (!silent) setIsLoading(true);
     try {
+      // ── Supabase read path (Phase 3, gated by VITE_USE_SUPABASE) ─────────────
+      // ONE query on leads_enriched (payment join done server-side) + bookings +
+      // clients in parallel. Reuses the existing normalisers via the snake_case→
+      // Airtable-shape mappers. Writes still go to Airtable in this phase.
+      if (USE_SUPABASE) {
+        const [leadRows, bookingRows, clientRows] = await Promise.all([
+          sbSelect('leads_enriched?select=*'),
+          sbSelect('bookings?select=*'),
+          sbSelect('clients?select=*'),
+        ]);
+        const all = leadRows.map(row => {
+          const lead = normaliseRecord(sbLeadRowToRecord(row));
+          return {
+            ...lead,
+            paid: !!row.paid,
+            paidAmount: row.paid_amount != null ? parseFloat(row.paid_amount) : 0,
+            paymentMethod: row.payment_method || '',
+            revenueRecordId: row.revenue_record_id || null,
+          };
+        });
+        const active = all.filter(r => r.status !== 'archived').sort((a, b) => b.dateObj - a.dateObj);
+        const archived = all
+          .filter(r => r.status === 'archived' && !permanentlyDeletedIds.current.has(r.airtableId))
+          .sort((a, b) => b.dateObj - a.dateObj)
+          .map(r => ({ ...r, deletedAt: r.dateObj }));
+        if (silent && epochAtStart !== writeEpoch.current) return;
+        setLeads(active);
+        setDeletedLeads(archived);
+        setCalBookings(bookingRows.map(b => normaliseCalBooking(sbBookingRowToRecord(b))));
+        const allClients = clientRows.map(c => normaliseClient(sbClientRowToRecord(c)));
+        setClients(allClients.filter(c => c.status !== 'Archived'));
+        setArchivedClients(allClients.filter(c => c.status === 'Archived'));
+        return;
+      }
+
       // ── Fetch leads ──────────────────────────────────────────────────────────
       let allRecords = [];
       if (IS_LOCAL) {
@@ -496,11 +543,26 @@ export function useLeads() {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, city } : l));
   }, []);
 
+  // Accepts a single job type (string) or multiple (array). Writes the full list
+  // to the 'Services' multiple-select field, and keeps a single primary value in
+  // 'Property Type' so all legacy single-value consumers keep working.
   const saveJobType = useCallback((id, jobType) => {
+    const arr = (Array.isArray(jobType) ? jobType : (jobType ? [jobType] : []))
+      .filter(j => VALID_JOB_TYPES.has(j));
+    const primary = arr[0] || '';
     setLeads(prev => prev.map(l => {
       if (l.id !== id) return l;
-      if (l.airtableId) patchAirtable(l.airtableId, { 'Property Type': jobType });
-      return { ...l, jobType };
+      if (l.airtableId) {
+        // Primary always saves. The 'Services' multi-select write is best-effort
+        // and SEQUENCED after it: if the Airtable 'Services' field hasn't been
+        // created yet, that PATCH 422s harmlessly (caught) and the primary still
+        // persists — so job-type editing never breaks pre-field. Sequencing also
+        // avoids the concurrent-PATCH-to-same-record race.
+        patchAirtable(l.airtableId, { 'Property Type': primary })
+          .then(() => patchAirtable(l.airtableId, { 'Services': arr }).catch(() => {}))
+          .catch(() => {});
+      }
+      return { ...l, jobType: primary, jobTypes: arr };
     }));
   }, [patchAirtable]);
 
