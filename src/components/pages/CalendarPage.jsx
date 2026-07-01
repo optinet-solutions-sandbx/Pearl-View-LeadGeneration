@@ -11,6 +11,16 @@ function mkDate(year, month, day) {
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+// Overlay close guard: only close when the pointer was pressed AND released on
+// the overlay itself. Prevents a text-selection drag that starts in an input and
+// ends outside the modal from being read as a "click outside" (which would wrongly
+// close the modal — and, in the job-done flow, finalise the job by accident).
+let _downOnOverlay = false;
+const overlayGuard = onClose => ({
+  onMouseDown: e => { _downOnOverlay = e.target === e.currentTarget; },
+  onClick:     e => { if (e.target === e.currentTarget && _downOnOverlay) onClose(); },
+});
+
 // ── Complete Job modal (payment + upsell) ─────────────────────────────────────
 function CompleteJobModal({ booking, onClose, onConfirm }) {
   const [method,      setMethod]      = useState('Cash');
@@ -43,7 +53,7 @@ function CompleteJobModal({ booking, onClose, onConfirm }) {
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 2200, padding: '0', overflowY: 'auto' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      {...overlayGuard(onClose)}
     >
       <div style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: '480px', boxShadow: '0 -8px 40px rgba(0,0,0,0.22)', overflow: 'hidden', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 20px', borderBottom: '1px solid var(--gray-100)' }}>
@@ -261,7 +271,7 @@ function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, lead
   const isDone = booking.bookingStatus === 'Completed';
 
   return (
-    <div style={modalOverlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div style={modalOverlay} {...overlayGuard(onClose)}>
       <div style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: '480px', maxHeight: '92dvh', display: 'flex', flexDirection: 'column', boxShadow: '0 -8px 40px rgba(0,0,0,0.18)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--gray-100)', flexShrink: 0 }}>
           <div>
@@ -352,7 +362,7 @@ function BookingModal({ year, month, day, leads, clients = [], addCalBooking, on
   }
 
   return (
-    <div style={modalOverlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div style={modalOverlay} {...overlayGuard(onClose)}>
       <div style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: '480px', maxHeight: '92dvh', display: 'flex', flexDirection: 'column', boxShadow: '0 -8px 40px rgba(0,0,0,0.18)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--gray-100)', flexShrink: 0 }}>
           <div>

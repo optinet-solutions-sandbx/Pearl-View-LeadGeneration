@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLeadsContext } from '../context/LeadsContext';
 
 const mlbl = { fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--gray-500)', marginBottom: '6px', display: 'block' };
@@ -17,6 +17,10 @@ export default function InvoiceModal() {
   const [testEmail, setTestEmail] = useState('');
   const [busy, setBusy]           = useState(false);
   const [err, setErr]             = useState('');
+  // Only a click that BOTH starts and ends on the overlay should close the modal.
+  // Selecting text in an input and releasing the mouse outside the modal fires an
+  // overlay "click" — without this guard that would wrongly close the modal.
+  const downOnOverlay = useRef(false);
 
   // Snapshot the lead so the modal NEVER loses the owner's typed inputs. The 30s
   // poll (or a leads reload) can momentarily make invoiceModalLead null/replace
@@ -88,7 +92,8 @@ export default function InvoiceModal() {
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 3000, overflowY: 'auto' }}
-      onClick={e => { if (e.target === e.currentTarget && !busy) closeInvoiceModal(); }}
+      onMouseDown={e => { downOnOverlay.current = e.target === e.currentTarget; }}
+      onClick={e => { if (e.target === e.currentTarget && downOnOverlay.current && !busy) closeInvoiceModal(); }}
     >
       <div style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: '480px', boxShadow: '0 -8px 40px rgba(0,0,0,0.22)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--gray-100)' }}>
