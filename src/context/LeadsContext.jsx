@@ -419,6 +419,7 @@ export function LeadsProvider({ children }) {
       quoteSendLeadName: leads.find(l => l.id === quoteSendModalId)?.name || null,
       confirmQuoteSend,
       closeQuoteSendModal,
+      invoiceModalId,
       invoiceModalLead: invoiceModalId ? (leads.find(l => l.id === invoiceModalId) || null) : null,
       openInvoiceModal,
       closeInvoiceModal,

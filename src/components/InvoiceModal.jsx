@@ -8,7 +8,7 @@ const inp  = { width: '100%', padding: '10px 12px', fontSize: '14px', border: '1
 const SERVICE_SUGGESTIONS = ['Window Cleaning', 'Pressure Washing', 'Solar Panel', 'Other'];
 
 export default function InvoiceModal() {
-  const { invoiceModalLead, sendInvoice, closeInvoiceModal, showToast } = useLeadsContext();
+  const { invoiceModalId, invoiceModalLead, sendInvoice, closeInvoiceModal, showToast } = useLeadsContext();
 
   const [to, setTo]               = useState('');
   const [project, setProject]     = useState('');
@@ -18,31 +18,29 @@ export default function InvoiceModal() {
   const [busy, setBusy]           = useState(false);
   const [err, setErr]             = useState('');
 
-  const lead = invoiceModalLead;
+  // Snapshot the lead so the modal NEVER loses the owner's typed inputs. The 30s
+  // poll (or a leads reload) can momentarily make invoiceModalLead null/replace
+  // it; without a snapshot the modal would unmount/reset and wipe the email.
+  const [lead, setLead] = useState(null);
+  useEffect(() => { if (invoiceModalLead) setLead(invoiceModalLead); }, [invoiceModalLead]);
 
-  // Initialise the form ONLY when a different lead is opened — keyed on the
-  // stable lead id, NOT the lead object. The 30s background poll replaces the
-  // lead object reference every cycle; depending on `lead` here would re-run
-  // this effect and wipe whatever the owner is typing. (Bug fix.)
+  // Initialise the form ONCE per modal-open (keyed on invoiceModalId, not the
+  // lead object). Opening a different lead re-inits; a poll/reload does not.
   useEffect(() => {
-    if (!lead) return;
-    setTo(lead.email || '');
-    setProject(lead.address || '');
-    // Pre-fill one line per selected service. The lead's quoted/invoice value
-    // goes on the first line; extra services start blank for the owner to price.
-    const jobs = (lead.jobTypes && lead.jobTypes.length)
-      ? lead.jobTypes
-      : [lead.jobType || 'window cleaning'];
-    setLineItems(jobs.map((j, idx) => ({
-      description: j,
-      amount: idx === 0 ? String(lead.invoice || lead.value || '') : '',
-    })));
-    setTestEmail(lead.email || '');
+    if (!invoiceModalId) { setLead(null); return; }
+    const l = invoiceModalLead;
+    if (!l) return;
+    setLead(l);
+    setTo(l.email || '');
+    setProject(l.address || '');
+    const jobs = (l.jobTypes && l.jobTypes.length) ? l.jobTypes : [l.jobType || 'window cleaning'];
+    setLineItems(jobs.map((j, idx) => ({ description: j, amount: idx === 0 ? String(l.invoice || l.value || '') : '' })));
+    setTestEmail(l.email || '');
     setErr('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lead?.id]);
+  }, [invoiceModalId]);
 
-  if (!lead) return null;
+  if (!invoiceModalId || !lead) return null;
 
   const alreadySent = lead.invoiceSent;
 
