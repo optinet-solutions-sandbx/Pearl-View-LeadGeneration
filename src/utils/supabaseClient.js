@@ -63,6 +63,17 @@ export async function refreshSession() {
   return true;
 }
 
+// Guarantee a valid session token before a DB call. If the access token is
+// expired (or within its 60s buffer), refresh it. Deduped so parallel calls
+// share ONE refresh (avoids refresh-token reuse races). Returns false only when
+// there's no usable session at all (→ callers must NOT wipe data / should re-login).
+let _refreshP = null;
+export async function ensureToken() {
+  if (hasSession()) return true;
+  if (!_refreshP) _refreshP = refreshSession().finally(() => { _refreshP = null; });
+  return _refreshP;
+}
+
 // ── field-name → column maps (per table) ─────────────────────────────────────
 const LEAD_COLS = {
   'Client Name': 'client_name', 'Phone Number': 'phone_number', 'Caller ID': 'caller_id', 'Email': 'email',
@@ -125,7 +136,14 @@ const toFields = (reg, row) => {
 
 // ── low-level fetch ───────────────────────────────────────────────────────────
 export async function sbSelect(path) {
-  const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: hdr() });
+  // Never read with the anon key while logged in under RLS — that returns an
+  // EMPTY set and would wipe the UI. Ensure a live token first; if the session
+  // can't be restored, THROW (callers keep their existing data, don't blank it).
+  if (!(await ensureToken())) { const e = new Error('Not authenticated'); e.code = 'AUTH'; throw e; }
+  let r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: hdr() });
+  if (r.status === 401 && await refreshSession()) {
+    r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: hdr() });
+  }
   if (!r.ok) throw new Error(`Supabase ${path} → ${r.status}: ${await r.text()}`);
   return r.json();
 }
@@ -134,6 +152,7 @@ export async function sbSelect(path) {
 export async function sbCreate(tableId, fields) {
   const reg = REG[tableId]; if (!reg) { console.error('sbCreate: unknown table', tableId); return null; }
   try {
+    await ensureToken();
     const r = await fetch(`${SB_URL}/rest/v1/${reg.sb}`, {
       method: 'POST', headers: { ...hdrJson(), Prefer: 'return=representation' }, body: JSON.stringify(toCols(reg, fields)),
     });
@@ -141,15 +160,17 @@ export async function sbCreate(tableId, fields) {
     const data = await r.json(); return data[0]?.id || null;
   } catch (e) { console.error('sbCreate error', e); return null; }
 }
-export function sbUpdate(tableId, recordId, fields) {
-  const reg = REG[tableId]; if (!reg || !recordId) return Promise.resolve();
+export async function sbUpdate(tableId, recordId, fields) {
+  const reg = REG[tableId]; if (!reg || !recordId) return;
+  await ensureToken();
   return fetch(`${SB_URL}/rest/v1/${reg.sb}?id=eq.${recordId}`, {
     method: 'PATCH', headers: hdrJson(), body: JSON.stringify(toCols(reg, fields)),
   }).then(r => { if (!r.ok) r.text().then(t => console.error('sbUpdate failed', reg.sb, t)); })
     .catch(e => console.error('sbUpdate error', e));
 }
-export function sbDelete(tableId, recordId) {
-  const reg = REG[tableId]; if (!reg || !recordId) return Promise.resolve();
+export async function sbDelete(tableId, recordId) {
+  const reg = REG[tableId]; if (!reg || !recordId) return;
+  await ensureToken();
   return fetch(`${SB_URL}/rest/v1/${reg.sb}?id=eq.${recordId}`, { method: 'DELETE', headers: hdr() })
     .then(r => { if (!r.ok) r.text().then(t => console.error('sbDelete failed', reg.sb, t)); })
     .catch(e => console.error('sbDelete error', e));
@@ -167,6 +188,7 @@ export async function sbFetch(tableId) {
 // Airtable patchAirtable return contract.
 export async function sbPatchLead(recordId, fields) {
   try {
+    await ensureToken();
     const r = await fetch(`${SB_URL}/rest/v1/leads?id=eq.${recordId}`, {
       method: 'PATCH', headers: { ...hdrJson(), Prefer: 'return=representation' }, body: JSON.stringify(toCols(REG[AT.leads], fields)),
     });
