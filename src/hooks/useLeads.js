@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { STATUS_MAP, AT_STATUS_MAP, PROG_MAP } from '../utils/constants';
 import { parseDate } from '../utils/dateUtils';
 import { createRecord, updateRecord, deleteRecord, fetchRecords, AT_TABLES } from '../utils/airtableSync';
-import { USE_SUPABASE, sbSelect, sbPatchLead, sbLeadRowToRecord, sbBookingRowToRecord, sbClientRowToRecord } from '../utils/supabaseClient';
+import { USE_SUPABASE, sbSelect, sbCreate, sbPatchLead, sbLeadRowToRecord, sbBookingRowToRecord, sbClientRowToRecord } from '../utils/supabaseClient';
 
 const VALID_JOB_TYPES = new Set(['Window Cleaning', 'Pressure Washing', 'Solar Panel', 'Other']);
 
@@ -719,60 +719,54 @@ export function useLeads() {
       'Inquiry Date':            now.toISOString(),
       'Lead Source':             leadData.leadSource || '',
     };
-    const req = IS_LOCAL
-      ? fetch(`https://api.airtable.com/v0/${AT_BASE}/${AT_TABLE}`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${AT_TOKEN}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fields, typecast: true }),
-        })
-      : fetch('/api/create-lead', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fields }),
-        });
+    // Create the record. Under Supabase the record id MUST be the Supabase UUID
+    // (so later status changes patch the right row) — route through sbCreate.
+    let newId = null;
     try {
-      const r = await req;
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({}));
-        console.error('addLead: Airtable rejected the record:', err);
-        return null;
+      if (USE_SUPABASE) {
+        newId = await sbCreate(AT_TABLES.leads, fields);
+      } else {
+        const req = IS_LOCAL
+          ? fetch(`https://api.airtable.com/v0/${AT_BASE}/${AT_TABLE}`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${AT_TOKEN}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fields, typecast: true }),
+            })
+          : fetch('/api/create-lead', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fields }),
+            });
+        const r = await req;
+        if (!r.ok) { console.error('addLead: create rejected', await r.json().catch(() => ({}))); }
+        else newId = (await r.json()).id || null;
       }
-      const data = await r.json();
-      if (data.id) {
-        setLeads(prev => prev.map(l => l.id === tempId ? { ...l, airtableId: data.id } : l));
-        // Notify WhatsApp service
-        const webhookUrl = import.meta.env.VITE_WEBHOOK_URL;
-        if (webhookUrl) {
-          fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name:       leadData.name        || '',
-              phone:      leadData.phone       || '',
-              email:      leadData.email       || '',
-              subject:    leadData.subject     || '',
-              leadSource: leadData.leadSource  || '',
-            }),
-          })
-            .then(r => r.json().then(d => console.log('WhatsApp notification:', d)))
-            .catch(err => console.error('WhatsApp notification failed:', err));
-        } else {
-          console.warn('VITE_WEBHOOK_URL not set — skipping WhatsApp notification');
-        }
-        // Sync phone number to Mobile Message broadcast list (non-blocking)
-        syncToMobileMessage({
-          name:  leadData.name  || '',
-          phone: leadData.phone || '',
-          email: leadData.email || '',
-          inquiryDate: now.toISOString(),
-        });
-        return data.id;
-      }
-      return null;
     } catch (err) {
-      console.error('addLead: failed to create in Airtable', err);
+      console.error('addLead: failed to create lead', err);
+    }
+    if (!newId) {
+      // roll back the optimistic row so it can't be edited with a bad/no id
+      setLeads(prev => prev.filter(l => l.id !== tempId));
       return null;
     }
+    setLeads(prev => prev.map(l => l.id === tempId ? { ...l, airtableId: newId } : l));
+    // Notify WhatsApp service (non-blocking)
+    const webhookUrl = import.meta.env.VITE_WEBHOOK_URL;
+    if (webhookUrl) {
+      fetch(webhookUrl, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: leadData.name || '', phone: leadData.phone || '', email: leadData.email || '',
+          subject: leadData.subject || '', leadSource: leadData.leadSource || '',
+        }),
+      }).then(r => r.json().then(d => console.log('WhatsApp notification:', d)))
+        .catch(err => console.error('WhatsApp notification failed:', err));
+    }
+    // Sync phone number to Mobile Message broadcast list (non-blocking)
+    syncToMobileMessage({
+      name: leadData.name || '', phone: leadData.phone || '', email: leadData.email || '', inquiryDate: now.toISOString(),
+    });
+    return newId;
   }, []);
 
   // ─── Sync a lead's field update to the matching Clients table record ─────────
