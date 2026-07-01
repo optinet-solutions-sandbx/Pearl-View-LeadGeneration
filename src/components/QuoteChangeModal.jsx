@@ -1,4 +1,5 @@
 import { useLeadsContext } from '../context/LeadsContext';
+import { overlayClose } from '../utils/overlayClose';
 
 export default function QuoteChangeModal() {
   const { quoteModalId, confirmQuoteChange, closeQuoteModal, leads } = useLeadsContext();
@@ -8,7 +9,7 @@ export default function QuoteChangeModal() {
   const amount = lead?.value > 0 ? `$${lead.value}` : 'a quote amount';
 
   return (
-    <div className="overlay open" onClick={e => e.target === e.currentTarget && closeQuoteModal()}>
+    <div className="overlay open" {...overlayClose(closeQuoteModal)}>
       <div className="modal" style={{ maxWidth: '340px', padding: '24px' }}>
         <div className="modal-title">Quote Amount</div>
         <p style={{ fontSize: '12.5px', color: 'var(--gray-500)', marginBottom: '18px' }}>

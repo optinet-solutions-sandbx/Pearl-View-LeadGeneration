@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useLeadsContext } from '../context/LeadsContext';
+import { overlayClose } from '../utils/overlayClose';
 
 // Native time input — converts between "9:00 AM" display format and HH:MM input value
 function TimePicker({ value, onChange }) {
@@ -59,7 +60,7 @@ export default function BookModal() {
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 3000, overflowY: 'auto' }}
-      onClick={e => { if (e.target === e.currentTarget) closeBookModal(); }}
+      {...overlayClose(closeBookModal)}
     >
       <div style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: '480px', boxShadow: '0 -8px 40px rgba(0,0,0,0.22)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--gray-100)' }}>

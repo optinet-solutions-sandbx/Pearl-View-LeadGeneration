@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useLeadsContext } from '../context/LeadsContext';
 import { LEAD_SOURCES } from '../utils/constants';
+import { overlayClose } from '../utils/overlayClose';
 
 export default function NewLeadModal() {
   const { isModalOpen, setModalOpen, addLead, clients, leads } = useLeadsContext();
@@ -76,14 +77,10 @@ export default function NewLeadModal() {
     setModalOpen(false);
   }
 
-  function handleOverlayClick(e) {
-    if (e.target === e.currentTarget) setModalOpen(false);
-  }
-
   if (!isModalOpen) return null;
 
   return (
-    <div className="overlay open" onClick={handleOverlayClick}>
+    <div className="overlay open" {...overlayClose(() => setModalOpen(false))}>
       <div className="modal">
         <div className="modal-title">+ Add New Lead</div>
 

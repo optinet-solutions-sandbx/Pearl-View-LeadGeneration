@@ -1,11 +1,12 @@
 import { useLeadsContext } from '../context/LeadsContext';
+import { overlayClose } from '../utils/overlayClose';
 
 export default function RefuseModal() {
   const { refuseModalId, confirmRefuse, closeRefuseModal } = useLeadsContext();
   if (!refuseModalId) return null;
 
   return (
-    <div className="overlay open" onClick={e => e.target === e.currentTarget && closeRefuseModal()}>
+    <div className="overlay open" {...overlayClose(closeRefuseModal)}>
       <div className="modal" style={{ maxWidth: '340px', padding: '24px' }}>
         <div className="modal-title">Refusal Reason</div>
         <p style={{ fontSize: '12.5px', color: 'var(--gray-500)', marginBottom: '18px' }}>

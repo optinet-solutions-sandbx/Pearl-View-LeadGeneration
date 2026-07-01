@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useLeadsContext } from '../context/LeadsContext';
 import { formatDate, formatLeadSource } from '../utils/dateUtils';
+import { overlayClose } from '../utils/overlayClose';
 
 const STATUS_LABELS = {
   new:         { label: 'New Lead',    bg: '#eff6ff', color: '#2563eb' },
@@ -72,7 +73,7 @@ export default function ClientDetailModal({ client, onClose, onArchive }) {
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '16px' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      {...overlayClose(onClose)}
     >
       <div style={{ background: '#fff', borderRadius: '16px', width: '100%', maxWidth: '480px', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.22)', overflow: 'hidden' }}>
 

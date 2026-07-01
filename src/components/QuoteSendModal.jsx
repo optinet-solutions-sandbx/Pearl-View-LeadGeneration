@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useLeadsContext } from '../context/LeadsContext';
+import { overlayClose } from '../utils/overlayClose';
 
 const mlbl = { fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--gray-500)', marginBottom: '6px', display: 'block' };
 
@@ -27,7 +28,7 @@ export default function QuoteSendModal() {
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 3000, overflowY: 'auto' }}
-      onClick={e => { if (e.target === e.currentTarget) handleClose(); }}
+      {...overlayClose(handleClose)}
     >
       <div style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: '480px', boxShadow: '0 -8px 40px rgba(0,0,0,0.22)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--gray-100)' }}>

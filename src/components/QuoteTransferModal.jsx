@@ -1,4 +1,5 @@
 import { useLeadsContext } from '../context/LeadsContext';
+import { overlayClose } from '../utils/overlayClose';
 
 export default function QuoteTransferModal() {
   const {
@@ -13,7 +14,7 @@ export default function QuoteTransferModal() {
   return (
     <div
       className="overlay open"
-      onClick={e => e.target === e.currentTarget && closeQuoteTransferModal()}
+      {...overlayClose(closeQuoteTransferModal)}
     >
       <div className="modal" style={{ maxWidth: '380px' }}>
         <h3 style={{ margin: '0 0 10px', fontSize: '16px', fontWeight: 700, color: 'var(--gray-900)' }}>

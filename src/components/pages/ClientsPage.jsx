@@ -2,6 +2,7 @@ import { useState, useMemo, useRef } from 'react';
 import { useLeadsContext } from '../../context/LeadsContext';
 import { formatDate } from '../../utils/dateUtils';
 import ClientDetailModal from '../ClientDetailModal';
+import { overlayClose } from '../../utils/overlayClose';
 
 const PAGE_SIZE = 10;
 
@@ -60,7 +61,7 @@ function AddClientModal({ onClose, onSave }) {
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2100, padding: '16px' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      {...overlayClose(onClose)}
     >
       <div style={{ background: '#fff', borderRadius: '16px', width: '100%', maxWidth: '420px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.22)', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--gray-100)' }}>

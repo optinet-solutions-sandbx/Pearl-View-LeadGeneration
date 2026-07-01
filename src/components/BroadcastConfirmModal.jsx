@@ -1,3 +1,5 @@
+import { overlayClose } from '../utils/overlayClose';
+
 export default function BroadcastConfirmModal({
   open,
   message,
@@ -30,7 +32,7 @@ export default function BroadcastConfirmModal({
   return (
     <div
       className="overlay open"
-      onClick={e => e.target === e.currentTarget && !sending && onCancel()}
+      {...overlayClose(() => { if (!sending) onCancel(); })}
     >
       <div className="modal" style={{ maxWidth: '460px', padding: '24px' }}>
         <div className="modal-title">
