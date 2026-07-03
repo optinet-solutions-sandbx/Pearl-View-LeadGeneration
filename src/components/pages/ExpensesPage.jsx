@@ -22,6 +22,9 @@ export default function ExpensesPage() {
   const [form, setForm] = useState({ category: EXPENSE_CATEGORIES[0], amount: '', description: '', date: new Date().toISOString().slice(0, 10) });
   const [showForm, setShowForm] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
+  const [period,    setPeriod]    = useState('all');       // all | week | month | year
+  const [catFilter, setCatFilter] = useState('all');       // category filter
+  const [sort,      setSort]      = useState('date-desc');  // date-desc|date-asc|amount-desc|amount-asc
 
   // Load expenses from Airtable on mount
   useEffect(() => {
@@ -77,12 +80,31 @@ export default function ExpensesPage() {
     setDeleteId(null);
   }
 
-  const total = expenses.reduce((s, e) => s + e.amount, 0);
+  // ── Filter (period + category) + sort ──────────────────────────────────────
+  const periodStart = () => {
+    const d = new Date();
+    if (period === 'week')  { d.setDate(d.getDate() - 6); d.setHours(0, 0, 0, 0); return d; }
+    if (period === 'month') { d.setDate(1);               d.setHours(0, 0, 0, 0); return d; }
+    if (period === 'year')  { d.setMonth(0, 1);           d.setHours(0, 0, 0, 0); return d; }
+    return null; // all
+  };
+  const pStart = periodStart();
+  const visible = expenses
+    .filter(e => (!pStart || new Date(e.date) >= pStart) && (catFilter === 'all' || e.category === catFilter))
+    .sort((a, b) => {
+      if (sort === 'date-asc')    return new Date(a.date) - new Date(b.date);
+      if (sort === 'amount-desc') return b.amount - a.amount;
+      if (sort === 'amount-asc')  return a.amount - b.amount;
+      return new Date(b.date) - new Date(a.date); // date-desc (default)
+    });
 
-  // Group by category
-  const byCategory = EXPENSE_CATEGORIES.map(cat => ({
+  const total = visible.reduce((s, e) => s + e.amount, 0);
+
+  // Categories present (for the filter dropdown) + per-category totals of the visible set
+  const allCats = [...new Set(expenses.map(e => e.category))].filter(Boolean).sort();
+  const byCategory = allCats.map(cat => ({
     cat,
-    total: expenses.filter(e => e.category === cat).reduce((s, e) => s + e.amount, 0),
+    total: visible.filter(e => e.category === cat).reduce((s, e) => s + e.amount, 0),
   })).filter(c => c.total > 0);
 
   if (isLoading) {
@@ -141,6 +163,34 @@ export default function ExpensesPage() {
       )}
 
 
+      {/* Filters: period + category + sort */}
+      {expenses.length > 0 && (
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {[['all','All time'],['week','This week'],['month','This month'],['year','This year']].map(([id, label]) => (
+              <button key={id} onClick={() => setPeriod(id)} style={{
+                padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                border: `1.5px solid ${period === id ? 'var(--primary)' : 'var(--gray-200)'}`,
+                background: period === id ? 'var(--primary)' : '#fff',
+                color: period === id ? '#fff' : 'var(--gray-600)',
+              }}>{label}</button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto', flexWrap: 'wrap' }}>
+            <select value={catFilter} onChange={e => setCatFilter(e.target.value)} style={expSel}>
+              <option value="all">All categories</option>
+              {allCats.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={sort} onChange={e => setSort(e.target.value)} style={expSel}>
+              <option value="date-desc">Date — newest</option>
+              <option value="date-asc">Date — oldest</option>
+              <option value="amount-desc">Amount — high to low</option>
+              <option value="amount-asc">Amount — low to high</option>
+            </select>
+          </div>
+        </div>
+      )}
+
       {/* Summary cards */}
       {byCategory.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px', marginBottom: '16px' }}>
@@ -162,13 +212,13 @@ export default function ExpensesPage() {
 
       {/* Expense list */}
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--gray-200)', overflow: 'hidden' }}>
-        {expenses.length === 0 ? (
+        {visible.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--gray-400)' }}>
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" style={{ width: '40px', height: '40px', margin: '0 auto 12px', display: 'block', color: 'var(--gray-300)' }}>
               <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
             </svg>
-            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--gray-500)' }}>No expenses yet</div>
-            <div style={{ fontSize: '12px', marginTop: '4px' }}>Click "Add Expense" to get started</div>
+            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--gray-500)' }}>{expenses.length === 0 ? 'No expenses yet' : 'No expenses match these filters'}</div>
+            <div style={{ fontSize: '12px', marginTop: '4px' }}>{expenses.length === 0 ? 'Click "Add Expense" to get started' : 'Try a different period or category'}</div>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -183,7 +233,7 @@ export default function ExpensesPage() {
                 </tr>
               </thead>
               <tbody>
-                {expenses.map(e => {
+                {visible.map(e => {
                   const c = CAT_COLORS[e.category] || { bg: '#f1f5f9', color: '#475569' };
                   const d = new Date(e.date);
                   const dateStr = d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -237,4 +287,5 @@ export default function ExpensesPage() {
 }
 
 const th = { padding: '10px 14px', textAlign: 'left', fontSize: '11.5px', fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' };
+const expSel = { padding: '7px 10px', fontSize: '12px', fontWeight: 600, color: 'var(--gray-700)', border: '1.5px solid var(--gray-200)', borderRadius: '8px', background: '#fff', fontFamily: 'inherit', cursor: 'pointer', outline: 'none' };
 const td = { padding: '12px 14px', color: 'var(--gray-700)', verticalAlign: 'middle' };

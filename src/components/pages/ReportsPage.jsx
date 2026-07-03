@@ -50,35 +50,45 @@ function smoothPath(pts) {
   return d;
 }
 
+// Bucket revenue + expenses into sensible time buckets for the grouped-bar chart:
+//   week  → 7 daily bars      month → weekly bars (~4-5)
+//   year  → 12 monthly bars   custom → daily / weekly / monthly by span
+// Fewer, wider buckets read far cleaner than 30 spiky daily points.
 function buildPeriods(range, from, to, revenues, expenses) {
   if (!from || !to) return [];
   const rev = revenues || [], exp = expenses || [];
+  const sumIn = (s, e) => rev.filter(r => { const d = new Date(r.date); return d >= s && d <= e; }).reduce((a, r) => a + r.amount, 0);
+  const sumEx = (s, e) => exp.filter(r => { const d = new Date(r.date); return d >= s && d <= e; }).reduce((a, r) => a + r.amount, 0);
+  const bucket = (s, e, label) => ({ label, income: sumIn(s, e), exp: sumEx(s, e) });
+
   if (range === 'year') {
     return Array.from({ length: 12 }, (_, m) => {
       const s = new Date(from.getFullYear(), m, 1);
       const e = new Date(from.getFullYear(), m + 1, 0, 23, 59, 59);
-      const label = s.toLocaleDateString('en-AU', { month: 'short' });
-      const income = rev.filter(r => { const d = new Date(r.date); return d >= s && d <= e; }).reduce((a, r) => a + r.amount, 0);
-      const expAmt = exp.filter(r => { const d = new Date(r.date); return d >= s && d <= e; }).reduce((a, e) => a + e.amount, 0);
-      return { label, income, exp: expAmt };
+      return bucket(s, e, s.toLocaleDateString('en-AU', { month: 'short' }));
     });
   }
-  const result = [];
+
+  const spanDays = Math.round((to - from) / 86400000) + 1;
+  const step = range === 'week' ? 1
+             : range === 'month' ? 7
+             : (spanDays <= 16 ? 1 : spanDays <= 92 ? 7 : 30); // custom
+
+  const out = [];
   const cur = new Date(from); cur.setHours(0, 0, 0, 0);
   const end = new Date(to);   end.setHours(23, 59, 59, 999);
   while (cur <= end) {
-    const ds = cur.toDateString();
-    const income = rev.filter(r => new Date(r.date).toDateString() === ds).reduce((a, r) => a + r.amount, 0);
-    const expAmt = exp.filter(r => new Date(r.date).toDateString() === ds).reduce((a, e) => a + e.amount, 0);
-    const label = range === 'week'
-      ? cur.toLocaleDateString('en-AU', { weekday: 'short' })
-      : (result.length === 0 || cur.getDate() === 1
-          ? cur.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
-          : String(cur.getDate()));
-    result.push({ label, income, exp: expAmt });
-    cur.setDate(cur.getDate() + 1);
+    const s = new Date(cur);
+    const e = new Date(cur); e.setDate(e.getDate() + step - 1); e.setHours(23, 59, 59, 999);
+    if (e > end) e.setTime(end.getTime());
+    const label = step === 1
+      ? (range === 'week' ? s.toLocaleDateString('en-AU', { weekday: 'short' })
+                          : s.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }))
+      : s.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+    out.push(bucket(s, e, label));
+    cur.setDate(cur.getDate() + step);
   }
-  return result;
+  return out;
 }
 
 // ── Expense category line chart helpers ──────────────────────────────────────
@@ -257,17 +267,13 @@ function linePath(pts) {
   return 'M' + pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' L');
 }
 
+// Grouped-bar financial chart: Income vs Expenses per time bucket. Profit is
+// shown on hover + in the summary tiles. Clear, no overlapping fills.
 function FinanceChart({ periods }) {
-  const incRef     = useRef(null);
-  const expRef     = useRef(null);
-  const profRef    = useRef(null);
-  const areaGrpRef = useRef(null);
-  const wrapRef    = useRef(null);
+  const wrapRef = useRef(null);
+  const [W, setW] = useState(640);
   const [hoverIdx, setHoverIdx] = useState(null);
-  const [W, setW]  = useState(640);
 
-  // Measure the container so the SVG viewBox matches its pixel width 1:1 →
-  // no horizontal distortion (the old preserveAspectRatio="none" stretched it).
   useEffect(() => {
     const el = wrapRef.current; if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(es => { const w = es[0]?.contentRect?.width; if (w) setW(Math.round(w)); });
@@ -275,86 +281,54 @@ function FinanceChart({ periods }) {
     return () => ro.disconnect();
   }, []);
 
+  const INC = '#16a34a', EXP = '#ef4444';
   const narrow = W < 480;
-  const H = narrow ? 190 : 230;
-  const PL = 8, PR = 10, PT = 30, PB = 26;
-  const cW = W - PL - PR, cH = H - PT - PB;
+  const H = narrow ? 200 : 240;
+  const PL = 42, PR = 12, PT = 12, PB = 28;
+  const cW = Math.max(1, W - PL - PR), cH = H - PT - PB;
   const floorY = PT + cH;
 
-  const allVals = periods.flatMap(p => [p.income, p.exp, Math.max(0, p.income - p.exp)]);
-  const rawMax  = Math.max(...allVals, 1);
-  // Compute nice round max & step
+  const n = periods.length || 1;
+  const allVals = periods.flatMap(p => [p.income, p.exp]);
+  const rawMax = Math.max(...allVals, 1);
   const niceStep = (() => {
     const rough = rawMax / 4;
-    const exp   = Math.pow(10, Math.floor(Math.log10(rough)));
-    return [1, 2, 2.5, 5, 10].map(s => s * exp).find(s => s >= rough) || exp * 10;
+    const e = Math.pow(10, Math.floor(Math.log10(rough)));
+    return [1, 2, 2.5, 5, 10].map(s => s * e).find(s => s >= rough) || e * 10;
   })();
-  const maxVal  = Math.ceil(rawMax / niceStep) * niceStep;
+  const maxVal = Math.ceil(rawMax / niceStep) * niceStep || 1;
   const hasData = allVals.some(v => v > 0);
-  const depsKey = periods.map(p => `${p.income},${p.exp}`).join('|');
 
-  useEffect(() => {
-    [incRef, expRef, profRef].forEach(ref => {
-      const el = ref.current;
-      if (!el) return;
-      const len = el.getTotalLength();
-      el.style.strokeDasharray  = len;
-      el.style.strokeDashoffset = len;
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (el) { el.style.transition = 'stroke-dashoffset 1.4s cubic-bezier(.4,0,.2,1)'; el.style.strokeDashoffset = 0; }
-      }));
-    });
-    const grp = areaGrpRef.current;
-    if (grp) {
-      grp.style.transition      = 'none';
-      grp.style.transformOrigin = `${PL}px ${floorY}px`;
-      grp.style.transform       = 'scaleY(0)';
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (grp) { grp.style.transition = 'transform 1.5s cubic-bezier(.4,0,.2,1)'; grp.style.transform = 'scaleY(1)'; }
-      }));
-    }
-  }, [depsKey]);
-
-  const n    = periods.length || 1;
-  const xOf  = i => PL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW);
-  const yOf  = v => PT + cH - (v / maxVal) * cH;
-
-  const incPts  = periods.map((p, i) => [xOf(i), yOf(p.income)]);
-  const expPts  = periods.map((p, i) => [xOf(i), yOf(p.exp)]);
-  const profPts = periods.map((p, i) => [xOf(i), yOf(Math.max(0, p.income - p.exp))]);
-
-  const incLine  = linePath(incPts);
-  const expLine  = linePath(expPts);
-  const profLine = linePath(profPts);
-  const mkArea   = line => line ? `${line} L${xOf(n-1).toFixed(1)},${floorY} L${xOf(0).toFixed(1)},${floorY} Z` : '';
+  const slot     = cW / n;
+  const groupPad = Math.min(slot * 0.28, 18);       // gap between buckets
+  const groupW   = Math.max(6, slot - groupPad);
+  const barGap   = Math.min(groupW * 0.14, 4);      // gap between the 2 bars in a group
+  const barW     = Math.max(3, (groupW - barGap) / 2);
+  const yOf      = v => PT + cH - (v / maxVal) * cH;
+  const xSlot    = i => PL + i * slot;
 
   const yTicks = Array.from({ length: 5 }, (_, i) => {
-    const v = niceStep * i;
-    return { y: yOf(v), label: v >= 1000 ? `$${(v/1000).toFixed(v%1000===0?0:1)}k` : `$${Math.round(v)}` };
+    const v = (maxVal / 4) * i;
+    return { v, y: yOf(v), label: v >= 1000 ? `$${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : `$${Math.round(v)}` };
   });
 
-  // Responsive x-axis labels: fit roughly one label per ~46px of width.
-  const maxLabels  = Math.max(4, Math.floor(cW / 46));
+  // x-axis labels: thin them if too many buckets to fit.
+  const maxLabels  = Math.max(3, Math.floor(cW / 44));
   const labelEvery = Math.max(1, Math.ceil(n / maxLabels));
-  const hX     = hoverIdx !== null ? xOf(hoverIdx) : null;
-  const hP     = hoverIdx !== null ? periods[hoverIdx] : null;
-  const tipPct = hoverIdx !== null ? ((PL + (hoverIdx / Math.max(n-1,1)) * cW) / W * 100) : 50;
 
-  function onMove(e) {
-    const r    = e.currentTarget.getBoundingClientRect();
-    const svgX = ((e.clientX - r.left) / r.width) * W;
-    const plotX = Math.max(0, Math.min(cW, svgX - PL));
-    setHoverIdx(Math.max(0, Math.min(n - 1, Math.round((plotX / cW) * (n - 1)))));
-  }
+  const hP     = hoverIdx !== null ? periods[hoverIdx] : null;
+  const tipPct = hoverIdx !== null ? ((xSlot(hoverIdx) + slot / 2) / W * 100) : 50;
+
+  const legend = [{ c: INC, label: 'Income' }, { c: EXP, label: 'Expenses' }];
 
   return (
     <div style={{ background: '#fff', borderRadius: '16px', padding: '16px 16px 10px', marginBottom: '14px', border: '1px solid var(--gray-200)' }}>
       <div style={{ marginBottom: '10px' }}>
         <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--gray-800)', marginBottom: '6px' }}>Financial Overview</div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          {Object.values(FC).map(s => (
+        <div style={{ display: 'flex', gap: '14px' }}>
+          {legend.map(s => (
             <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <div style={{ width: '16px', height: '3px', background: s.stroke, borderRadius: '2px' }} />
+              <div style={{ width: '11px', height: '11px', background: s.c, borderRadius: '3px' }} />
               <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--gray-500)' }}>{s.label}</span>
             </div>
           ))}
@@ -366,81 +340,55 @@ function FinanceChart({ periods }) {
         {hoverIdx !== null && hP && (
           <div style={{
             position: 'absolute', top: '2px', zIndex: 20, pointerEvents: 'none',
-            left: `clamp(82px, ${tipPct}%, calc(100% - 82px))`,
+            left: `clamp(78px, ${tipPct}%, calc(100% - 78px))`,
             transform: 'translateX(-50%)',
-            background: '#1e293b', color: '#fff',
-            fontSize: '9.5px', fontWeight: 600,
-            padding: '8px 12px', borderRadius: '10px',
-            lineHeight: 1.9, whiteSpace: 'nowrap',
-            boxShadow: '0 4px 20px rgba(0,0,0,.35)',
-            border: '1px solid rgba(255,255,255,.08)',
+            background: '#1e293b', color: '#fff', fontSize: '10px', fontWeight: 600,
+            padding: '8px 12px', borderRadius: '10px', lineHeight: 1.8, whiteSpace: 'nowrap',
+            boxShadow: '0 4px 20px rgba(0,0,0,.35)', border: '1px solid rgba(255,255,255,.08)',
           }}>
             <div style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 500, marginBottom: '3px' }}>{hP.label}</div>
-            <div style={{ color: FC.inc.dot  }}>● Income: ${hP.income.toLocaleString('en-AU')}</div>
-            <div style={{ color: FC.exp.dot  }}>● Expenses: ${hP.exp.toLocaleString('en-AU')}</div>
-            <div style={{ color: FC.prof.dot }}>● Profit: ${Math.max(0, hP.income - hP.exp).toLocaleString('en-AU')}</div>
+            <div style={{ color: '#4ade80' }}>● Income: ${hP.income.toLocaleString('en-AU')}</div>
+            <div style={{ color: '#fca5a5' }}>● Expenses: ${hP.exp.toLocaleString('en-AU')}</div>
+            <div style={{ color: (hP.income - hP.exp) >= 0 ? '#7dd3fc' : '#fda4af' }}>● Profit: ${(hP.income - hP.exp).toLocaleString('en-AU')}</div>
           </div>
         )}
 
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}
-          style={{ display: 'block', cursor: 'crosshair', overflow: 'visible' }}
-          onMouseMove={onMove} onMouseLeave={() => setHoverIdx(null)}
-        >
-          <defs>
-            <linearGradient id="fc-inc-g" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stopColor="#2563eb" stopOpacity="0.14" />
-              <stop offset="100%" stopColor="#2563eb" stopOpacity="0" />
-            </linearGradient>
-            <linearGradient id="fc-exp-g" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stopColor="#f43f5e" stopOpacity="0.12" />
-              <stop offset="100%" stopColor="#f43f5e" stopOpacity="0" />
-            </linearGradient>
-            <linearGradient id="fc-prof-g" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stopColor="#15803d" stopOpacity="0.13" />
-              <stop offset="100%" stopColor="#15803d" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-
-          {/* Grid lines + floating Y-axis labels inside chart */}
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display: 'block', overflow: 'visible' }}>
+          {/* Grid + Y labels */}
           {yTicks.map((t, i) => (
             <g key={i}>
-              <line x1={PL} y1={t.y} x2={W - PR} y2={t.y} stroke={i === 0 ? '#e2e8f0' : '#f1f5f9'} strokeWidth="0.8" />
-              {/* skip the very top label so it never crowds the legend above */}
-              {i < yTicks.length - 1 && (
-                <text x={PL + 4} y={t.y - 4} textAnchor="start" fontSize="11" fontWeight="500" fill="#94a3b8">{t.label}</text>
-              )}
+              <line x1={PL} y1={t.y} x2={W - PR} y2={t.y} stroke={i === 0 ? '#e2e8f0' : '#f1f5f9'} strokeWidth="1" />
+              <text x={PL - 6} y={t.y + 3.5} textAnchor="end" fontSize="10.5" fontWeight="500" fill="#94a3b8">{t.label}</text>
             </g>
           ))}
 
-          <g ref={areaGrpRef}>
-            <path d={mkArea(incLine)}  fill="url(#fc-inc-g)" />
-            <path d={mkArea(expLine)}  fill="url(#fc-exp-g)" />
-            <path d={mkArea(profLine)} fill="url(#fc-prof-g)" />
-          </g>
+          {/* Bars */}
+          {periods.map((p, i) => {
+            const gx = xSlot(i) + groupPad / 2;
+            const incH = Math.max(p.income > 0 ? 2 : 0, floorY - yOf(p.income));
+            const expH = Math.max(p.exp > 0 ? 2 : 0, floorY - yOf(p.exp));
+            const rx = Math.min(3, barW / 2);
+            const dim = hoverIdx !== null && hoverIdx !== i ? 0.42 : 1;
+            return (
+              <g key={i} style={{ opacity: dim, transition: 'opacity .12s' }}>
+                {hoverIdx === i && <rect x={xSlot(i)} y={PT} width={slot} height={cH} fill="#f8fafc" />}
+                <rect x={gx} y={floorY - incH} width={barW} height={incH} rx={rx} fill={INC} />
+                <rect x={gx + barW + barGap} y={floorY - expH} width={barW} height={expH} rx={rx} fill={EXP} />
+              </g>
+            );
+          })}
 
-          <path ref={incRef}  d={incLine}  fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          <path ref={expRef}  d={expLine}  fill="none" stroke="#f43f5e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          <path ref={profRef} d={profLine} fill="none" stroke="#15803d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-
+          {/* X labels */}
           {periods.map((p, i) => i % labelEvery === 0 ? (
-            <text
-              key={i}
-              x={xOf(i).toFixed(1)}
-              y={H - 7}
-              textAnchor={i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}
-              fontSize="11"
-              fill="#94a3b8"
-            >{p.label}</text>
+            <text key={i} x={xSlot(i) + slot / 2} y={H - 8} textAnchor="middle" fontSize="10.5" fill="#94a3b8">{p.label}</text>
           ) : null)}
 
-          {hX !== null && incPts[hoverIdx] && (
-            <>
-              <line x1={hX} y1={PT} x2={hX} y2={floorY} stroke="#cbd5e1" strokeWidth="1" strokeDasharray="3,3" />
-              <circle cx={hX} cy={incPts[hoverIdx][1]}  r="3.5" fill="#fff" stroke="#2563eb" strokeWidth="2" />
-              <circle cx={hX} cy={expPts[hoverIdx][1]}  r="3.5" fill="#fff" stroke="#f43f5e" strokeWidth="2" />
-              <circle cx={hX} cy={profPts[hoverIdx][1]} r="3.5" fill="#fff" stroke="#15803d" strokeWidth="2" />
-            </>
-          )}
+          {/* Hover hit-areas (one per bucket) */}
+          {periods.map((p, i) => (
+            <rect key={i} x={xSlot(i)} y={PT} width={slot} height={cH} fill="transparent"
+              style={{ cursor: 'pointer' }}
+              onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)} />
+          ))}
         </svg>
       </div>
     </div>
@@ -475,6 +423,8 @@ export default function ReportsPage() {
   const [customEnd,   setCustomEnd]   = useState('');
   const [activeTab,      setActiveTab]      = useState('overview'); // 'overview' | 'source' | 'transactions'
   const [selectedSource, setSelectedSource] = useState(null); // null = all sources
+  const [expCategory,    setExpCategory]    = useState('all');       // Expenses tab: category filter
+  const [expSort,        setExpSort]        = useState('date-desc');  // Expenses tab: sort order
 
   const [expenses,       setExpenses]       = useState([]);
   const [revenueRecords, setRevenueRecords] = useState([]);
@@ -487,6 +437,7 @@ export default function ReportsPage() {
     ]).then(([expRecs, revRecs]) => {
       setExpenses(expRecs.map(r => ({
         id:          r.id,
+        name:        r.fields['Expense Name'] || '',
         category:    r.fields['Category']    || 'General',
         amount:      parseFloat(r.fields['Amount'] || 0),
         description: r.fields['Description'] || '',
@@ -592,6 +543,20 @@ export default function ReportsPage() {
   const maxSource  = Math.max(...Object.values(bySource).map(v => v.amount),  1);
   const maxJobType = Math.max(...Object.values(byJobType).map(v => v.amount), 1);
   const maxCat     = Math.max(...Object.values(byCategory), 1);
+
+  // Expenses tab: category filter + sort + group (period already handled by `range`)
+  const expCategories = [...new Set(filteredExpenses.map(e => e.category))].filter(Boolean).sort();
+  const sortExp = (a, b) => {
+    if (expSort === 'date-asc')   return new Date(a.date) - new Date(b.date);
+    if (expSort === 'amount-desc') return b.amount - a.amount;
+    if (expSort === 'amount-asc')  return a.amount - b.amount;
+    return new Date(b.date) - new Date(a.date); // date-desc (default)
+  };
+  const visibleExpenses = filteredExpenses.filter(e => expCategory === 'all' || e.category === expCategory);
+  const expenseGroups = Object.entries(
+    visibleExpenses.reduce((acc, e) => { (acc[e.category] = acc[e.category] || []).push(e); return acc; }, {})
+  ).map(([cat, items]) => ({ cat, items: [...items].sort(sortExp), total: items.reduce((s, e) => s + e.amount, 0) }))
+   .sort((a, b) => b.total - a.total);
 
   const outstandingLeads = leads.filter(l => l.status === 'job_done' && !l.paid && inRange(l.date));
   const jobDoneLeads     = leads.filter(l => l.status === 'job_done' && inRange(l.date))
@@ -782,15 +747,52 @@ export default function ReportsPage() {
       {/* ── Expenses tab ── */}
       {activeTab === 'expenses' && (
         <>
-          <ExpensesLineChart expenses={filteredExpenses} range={range} from={from} to={to} />
+          {filteredExpenses.length > 0 ? (
+            <>
+              {/* Filter + sort controls (period handled by the range selector above) */}
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                <select value={expCategory} onChange={e => setExpCategory(e.target.value)} style={expSelect}>
+                  <option value="all">All categories</option>
+                  {expCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <select value={expSort} onChange={e => setExpSort(e.target.value)} style={expSelect}>
+                  <option value="date-desc">Date — newest first</option>
+                  <option value="date-asc">Date — oldest first</option>
+                  <option value="amount-desc">Amount — high to low</option>
+                  <option value="amount-asc">Amount — low to high</option>
+                </select>
+              </div>
 
-          {Object.keys(byCategory).length > 0 ? (
-            <div style={card}>
-              <div style={cardHdr}>Expenses by Category</div>
-              {Object.entries(byCategory).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
-                <Bar key={k} label={k} value={v} max={maxCat} color="#dc2626" bg="#fef2f2" />
-              ))}
-            </div>
+              {/* Category summary bars */}
+              <div style={card}>
+                <div style={cardHdr}>Expenses by Category{expCategory !== 'all' ? ` — ${expCategory}` : ''}</div>
+                {expenseGroups.map(g => (
+                  <Bar key={g.cat} label={g.cat} value={g.total} max={maxCat} color="#dc2626" bg="#fef2f2" count={g.items.length} />
+                ))}
+              </div>
+
+              {/* Itemised list, grouped by category, sorted */}
+              <div style={card}>
+                <div style={cardHdr}>Expense Items · {visibleExpenses.length}</div>
+                {expenseGroups.map(g => (
+                  <div key={g.cat} style={{ marginBottom: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--gray-100)', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--gray-700)' }}>{g.cat}</span>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: '#dc2626' }}>${g.total.toLocaleString('en-AU')}</span>
+                    </div>
+                    {g.items.map(it => (
+                      <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '6px 0', gap: '10px' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: '13px', color: 'var(--gray-800)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name || it.description || it.category}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--gray-400)' }}>{it.date ? new Date(it.date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</div>
+                        </div>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--gray-800)', flexShrink: 0 }}>${it.amount.toLocaleString('en-AU')}</div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </>
           ) : (
             <EmptyState msg="No expenses recorded for this period." />
           )}
@@ -1006,3 +1008,4 @@ const card     = { background: '#fff', borderRadius: '12px', border: '1px solid 
 const cardHdr  = { fontSize: '14px', fontWeight: 700, color: 'var(--gray-900)', marginBottom: '16px' };
 const cardHdr2 = { fontSize: '14px', fontWeight: 700, color: 'var(--gray-900)' };
 const lbl      = { fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--gray-500)', marginBottom: '5px', display: 'block' };
+const expSelect = { flex: '1 1 160px', minWidth: 0, padding: '9px 12px', fontSize: '13px', fontWeight: 600, color: 'var(--gray-700)', border: '1.5px solid var(--gray-200)', borderRadius: '8px', background: '#fff', fontFamily: 'inherit', cursor: 'pointer', outline: 'none' };
