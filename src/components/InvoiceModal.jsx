@@ -60,7 +60,7 @@ export default function InvoiceModal() {
       .map(li => ({ description: (li.description || '').trim(), amount: parseFloat(li.amount) || 0 }))
       .filter(li => li.description && li.amount > 0);
     if (!test && (clean.length === 0 || total <= 0)) { setErr('Add at least one service with an amount'); return; }
-    const recipient = test ? testEmail : to;
+    const recipient = (test ? testEmail : to).replace(/[\r\n\t]/g, '').trim();
     if (!recipient) { setErr('Recipient email is required'); return; }
     setErr(''); setBusy(true);
     try {
