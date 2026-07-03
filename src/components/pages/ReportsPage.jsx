@@ -300,12 +300,15 @@ function FinanceChart({ periods }) {
   const hasData = allVals.some(v => v > 0);
 
   const slot     = cW / n;
-  const groupPad = Math.min(slot * 0.28, 18);       // gap between buckets
+  const barGap   = 4;                                // gap between the 2 bars in a group
+  const groupPad = Math.min(slot * 0.30, 40);        // gap between buckets
   const groupW   = Math.max(6, slot - groupPad);
-  const barGap   = Math.min(groupW * 0.14, 4);      // gap between the 2 bars in a group
-  const barW     = Math.max(3, (groupW - barGap) / 2);
+  // Cap bar width so few buckets don't produce giant full-width blocks.
+  const barW     = Math.max(3, Math.min((groupW - barGap) / 2, 46));
+  const pairW    = barW * 2 + barGap;
   const yOf      = v => PT + cH - (v / maxVal) * cH;
   const xSlot    = i => PL + i * slot;
+  const groupX   = i => xSlot(i) + (slot - pairW) / 2; // center the pair in its slot
 
   const yTicks = Array.from({ length: 5 }, (_, i) => {
     const v = (maxVal / 4) * i;
@@ -364,7 +367,7 @@ function FinanceChart({ periods }) {
 
           {/* Bars */}
           {periods.map((p, i) => {
-            const gx = xSlot(i) + groupPad / 2;
+            const gx = groupX(i);
             const incH = Math.max(p.income > 0 ? 2 : 0, floorY - yOf(p.income));
             const expH = Math.max(p.exp > 0 ? 2 : 0, floorY - yOf(p.exp));
             const rx = Math.min(3, barW / 2);
