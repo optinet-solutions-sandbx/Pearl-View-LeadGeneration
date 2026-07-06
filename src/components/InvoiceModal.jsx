@@ -62,9 +62,11 @@ export default function InvoiceModal() {
       .map(li => ({ description: (li.description || '').trim(), amount: parseFloat(li.amount) || 0 }))
       .filter(li => li.description && li.amount > 0);
     if (!test && (clean.length === 0 || total <= 0)) { setErr('Add at least one service with an amount'); return; }
-    // Extract a clean email from whatever was typed/pasted (drops stray spaces,
-    // newlines, zero-width chars, or "Name <email>" wrapping that break sending).
-    const raw = (test ? testEmail : to) || '';
+    // Extract a clean email from whatever was typed/pasted. First drop invisible
+    // chars JS \s ignores (zero-width space/joiners U+200B-200D, BOM, nbsp) — a
+    // pasted address often hides one, which makes Gmail reject "Invalid To header".
+    const zap = s => [...String(s || '')].filter(c => ![0x200B, 0x200C, 0x200D, 0xFEFF, 0xA0].includes(c.codePointAt(0))).join('');
+    const raw = zap((test ? testEmail : to) || '');
     const m = raw.match(/[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+/);
     const recipient = m ? m[0] : raw.replace(/\s+/g, '');
     if (!recipient) { setErr('Recipient email is required'); return; }
