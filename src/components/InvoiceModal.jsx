@@ -36,7 +36,9 @@ export default function InvoiceModal() {
     setProject(l.address || '');
     const jobs = (l.jobTypes && l.jobTypes.length) ? l.jobTypes : [l.jobType || 'window cleaning'];
     setLineItems(jobs.map((j, idx) => ({ description: j, amount: idx === 0 ? String(l.invoice || l.value || '') : '' })));
-    setTestEmail(l.email || '');
+    // Test sends must NOT default to the client's address — owner types a safe
+    // test address (e.g. their own inbox) so a test never reaches the client.
+    setTestEmail('');
     setErr('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoiceModalId]);
@@ -60,7 +62,11 @@ export default function InvoiceModal() {
       .map(li => ({ description: (li.description || '').trim(), amount: parseFloat(li.amount) || 0 }))
       .filter(li => li.description && li.amount > 0);
     if (!test && (clean.length === 0 || total <= 0)) { setErr('Add at least one service with an amount'); return; }
-    const recipient = (test ? testEmail : to).replace(/[\r\n\t]/g, '').trim();
+    // Extract a clean email from whatever was typed/pasted (drops stray spaces,
+    // newlines, zero-width chars, or "Name <email>" wrapping that break sending).
+    const raw = (test ? testEmail : to) || '';
+    const m = raw.match(/[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+/);
+    const recipient = m ? m[0] : raw.replace(/\s+/g, '');
     if (!recipient) { setErr('Recipient email is required'); return; }
     setErr(''); setBusy(true);
     try {
