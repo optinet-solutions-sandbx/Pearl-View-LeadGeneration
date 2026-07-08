@@ -335,21 +335,11 @@ function BookingModal({ year, month, day, leads, clients = [], addCalBooking, on
     if (!form.clientName.trim()) { setFormErr('Client name is required'); return; }
     setFormErr('');
     const amt = parseFloat(form.amount) || 0;
+    // Amount is the EXPECTED/quote figure stored on the booking — NOT income yet.
+    // Income is recorded only when the job is marked done + payment recorded (via
+    // recordBookingPayment), so a booked amount can never double-count against the
+    // actual payment collected.
     addCalBooking({ ...form, date: targetDate, amount: amt });
-    // If amount entered, write Revenue record immediately
-    if (amt > 0) {
-      createRecord(AT_TABLES.revenue, {
-        'Revenue Name':   `${form.clientName} - ${form.service || 'Window Cleaning'}`,
-        'Date':           targetDate,
-        'Client Name':    form.clientName,
-        'Phone':          form.phone || '',
-        'Job_Service':    form.service || 'Window Cleaning',
-        'City':           form.city || '',
-        'Payment_Method': form.method || 'Cash',
-        'Amount':         amt,
-        'Status':         'Job Done',
-      });
-    }
     onClose();
   }
 
@@ -366,8 +356,9 @@ function BookingModal({ year, month, day, leads, clients = [], addCalBooking, on
         <div style={{ overflowY: 'auto', flex: 1, padding: '16px 20px' }}>
           <AppointmentFormFields form={form} setField={setField} leads={leads} clients={clients} />
 
-          {/* Amount — records as Revenue immediately if filled */}
-          <label style={fLbl}>Payment Amount (optional)</label>
+          {/* Amount here is the EXPECTED/quote figure — it is NOT income until the
+              job is marked done + payment recorded (prevents double-counting). */}
+          <label style={fLbl}>Expected amount (optional)</label>
           <div style={{ position: 'relative', marginBottom: '10px' }}>
             <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-500)', fontWeight: 700, fontSize: '14px' }}>$</span>
             <input type="number" value={form.amount} onChange={e => setField('amount', e.target.value)} placeholder="0.00"
@@ -375,22 +366,8 @@ function BookingModal({ year, month, day, leads, clients = [], addCalBooking, on
           </div>
           {parseFloat(form.amount) > 0 && (
             <div style={{ marginBottom: '10px' }}>
-              <label style={fLbl}>Payment Method</label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {['Cash', 'Bank'].map((mt, i) => (
-                  <button key={mt} type="button" onClick={() => setField('method', mt)} style={{
-                    flex: 1, padding: '8px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
-                    cursor: 'pointer', fontFamily: 'inherit',
-                    border: `1.5px solid ${form.method === mt ? (mt === 'Cash' ? '#16a34a' : '#2563eb') : 'var(--gray-200)'}`,
-                    background: form.method === mt ? (mt === 'Cash' ? '#f0fdf4' : '#eff6ff') : '#fff',
-                    color: form.method === mt ? (mt === 'Cash' ? '#16a34a' : '#2563eb') : 'var(--gray-500)',
-                  }}>
-                    {mt.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-              <div style={{ marginTop: '6px', fontSize: '11px', color: '#16a34a', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '5px 8px' }}>
-                Will be recorded as Revenue
+              <div style={{ fontSize: '11px', color: 'var(--gray-500)', background: 'var(--gray-50)', border: '1px solid var(--gray-200)', borderRadius: '6px', padding: '6px 9px' }}>
+                Saved as the expected amount. It's counted as income only when you mark the job done and record the payment.
               </div>
             </div>
           )}
