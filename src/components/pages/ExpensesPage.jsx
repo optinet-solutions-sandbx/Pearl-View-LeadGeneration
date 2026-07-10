@@ -8,6 +8,8 @@ const CAT_COLORS = {
   'Salary - Alon':               { bg: '#eff6ff', color: '#2563eb' },
   'Salary - Yuvi':               { bg: '#eff6ff', color: '#2563eb' },
   'Salary - Rahda':              { bg: '#eff6ff', color: '#2563eb' },
+  'Salary - Joy':                { bg: '#eff6ff', color: '#2563eb' },
+  'Salary - Omri':               { bg: '#eff6ff', color: '#2563eb' },
   'Fuel':                        { bg: '#fff7ed', color: '#c2410c' },
   'Cleaning Supplies/Equipment': { bg: '#f0fdf4', color: '#15803d' },
   'Advertising':                 { bg: '#fdf4ff', color: '#9333ea' },
