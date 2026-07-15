@@ -15,7 +15,12 @@ export const USE_SUPABASE = import.meta.env.VITE_USE_SUPABASE === 'true';
 
 // ── Auth (username + password via Supabase Auth; username maps to a hidden
 //    internal email). Session token is used for all DB calls so RLS applies. ──
-const LS = { access: 'pv_sb_access', refresh: 'pv_sb_refresh', exp: 'pv_sb_exp' };
+// Storage keys are SCOPED TO THE PROJECT ref. If the Supabase project ever
+// changes, the old project's token lives under a different key, so it can't be
+// mistaken for a valid session (which would silently show an empty dashboard
+// under RLS) — the app just prompts a fresh login instead.
+const SB_REF = (SB_URL || '').match(/\/\/([a-z0-9]+)\./)?.[1] || 'sb';
+const LS = { access: `pv_sb_access_${SB_REF}`, refresh: `pv_sb_refresh_${SB_REF}`, exp: `pv_sb_exp_${SB_REF}` };
 const AUTH_DOMAIN = 'pearlview.app';
 
 function bearer() {
@@ -51,6 +56,16 @@ export async function signIn(username, password) {
   return { ok: true };
 }
 export function signOut() { try { [LS.access, LS.refresh, LS.exp].forEach(k => localStorage.removeItem(k)); } catch { /* ignore */ } }
+// A logged-in session that's definitively dead (401 a refresh can't fix — expired,
+// revoked, or a project switch) must NOT leave the user staring at an empty
+// dashboard. Clear it and reload so the login page shows.
+let _reauthing = false;
+function forceReauth() {
+  if (_reauthing) return;
+  _reauthing = true;
+  signOut();
+  try { if (typeof location !== 'undefined') location.reload(); } catch { /* ignore */ }
+}
 export async function refreshSession() {
   let rt; try { rt = localStorage.getItem(LS.refresh); } catch { /* ignore */ }
   if (!rt) return false;
@@ -139,10 +154,13 @@ export async function sbSelect(path) {
   // Never read with the anon key while logged in under RLS — that returns an
   // EMPTY set and would wipe the UI. Ensure a live token first; if the session
   // can't be restored, THROW (callers keep their existing data, don't blank it).
-  if (!(await ensureToken())) { const e = new Error('Not authenticated'); e.code = 'AUTH'; throw e; }
+  if (!(await ensureToken())) { forceReauth(); const e = new Error('Not authenticated'); e.code = 'AUTH'; throw e; }
   let r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: hdr() });
-  if (r.status === 401 && await refreshSession()) {
-    r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: hdr() });
+  if (r.status === 401) {
+    // Try one refresh; if that fails the session is dead → force a clean re-login
+    // rather than returning an empty set (which would blank the dashboard).
+    if (await refreshSession()) { r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: hdr() }); }
+    else { forceReauth(); const e = new Error('Session expired'); e.code = 'AUTH'; throw e; }
   }
   if (!r.ok) throw new Error(`Supabase ${path} → ${r.status}: ${await r.text()}`);
   return r.json();
