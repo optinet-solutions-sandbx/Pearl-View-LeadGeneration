@@ -428,13 +428,22 @@ async function extractFormLeads({ notify = true } = {}) {
   const dateFilter = process.env.EMAIL_LOOKBACK || 'newer_than:6m';
   // Match ALL Squarespace form submissions (forms get renamed: "New Form",
   // "form windows 1", "Form windows 2", ...) by sender, plus the Pearl View form.
-  const query = `((from:form-submission@squarespace.info) OR (from:pearlview.com.au) OR subject:(new message from Pearl View)) -label:"${FORM_LABEL_NAME}" ${dateFilter}`;
+  // Exclude our OWN Facebook/Instagram lead-alert emails: they are sent to this
+  // same inbox and — being from @pearlview.com.au with Name:/Phone:/Email: lines
+  // — would otherwise be mis-parsed as website form submissions → duplicate leads.
+  const query = `((from:form-submission@squarespace.info) OR (from:pearlview.com.au) OR subject:(new message from Pearl View)) -label:"${FORM_LABEL_NAME}" -subject:"New Facebook lead" -subject:"New Instagram lead" ${dateFilter}`;
   const messages = await fetchUnprocessedMessages(gmail, query);
 
   let processed = 0;
   for (const message of messages) {
     try {
       const subject = getSubject(message);
+      // Defensive: never ingest our own FB/IG lead-alert emails (the -subject
+      // filter in the query should exclude them, but Gmail matching is fuzzy).
+      if (/^\s*new (facebook|instagram) lead:/i.test(subject)) {
+        console.log(`[email-extractor] Skipping own FB/IG notification email: ${subject}`);
+        continue;
+      }
       const from = (message.payload?.headers || []).find(h => h.name.toLowerCase() === 'from')?.value || '';
       const body = decodeBody(message.payload);
 
