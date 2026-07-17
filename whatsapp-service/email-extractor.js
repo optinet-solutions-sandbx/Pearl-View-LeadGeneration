@@ -313,6 +313,106 @@ function mapFbRowToLead(row) {
   };
 }
 
+function b64urlEmail(str) {
+  return Buffer.from(str).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// Minimal plain-text (optionally HTML) email via the Gmail API — same transport
+// invoice.js uses. Reuses buildOAuthClient() defined above.
+async function sendPlainEmail({ to, subject, text, html, refreshToken }) {
+  const oauth2 = buildOAuthClient();
+  oauth2.setCredentials({ refresh_token: refreshToken });
+  const gmail = google.gmail({ version: 'v1', auth: oauth2 });
+  const encSubject = `=?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`;
+  let mime;
+  if (html) {
+    const boundary = 'pv_fb_notify_alt';
+    mime = [
+      `To: ${to}`, `Subject: ${encSubject}`, 'MIME-Version: 1.0',
+      `Content-Type: multipart/alternative; boundary="${boundary}"`, '',
+      `--${boundary}`, 'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '',
+      Buffer.from(text || '').toString('base64'), '',
+      `--${boundary}`, 'Content-Type: text/html; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '',
+      Buffer.from(html).toString('base64'), '',
+      `--${boundary}--`,
+    ].join('\r\n');
+  } else {
+    mime = [
+      `To: ${to}`, `Subject: ${encSubject}`, 'MIME-Version: 1.0',
+      'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '',
+      Buffer.from(text || '').toString('base64'),
+    ].join('\r\n');
+  }
+  return gmail.users.messages.send({ userId: 'me', requestBody: { raw: b64urlEmail(mime) } });
+}
+
+async function sendFbLeadEmail(fields) {
+  const to = process.env.FB_LEADS_NOTIFY_EMAIL || 'service@pearlview.com.au';
+  const refreshToken = process.env.GMAIL_SEND_REFRESH_TOKEN || process.env.GMAIL_FORM_REFRESH_TOKEN;
+  if (!refreshToken) { console.warn('[fb-leads] no send token — skipping email'); return; }
+  const label = fields['Lead Source'];
+  const subject = `New ${label} lead: ${fields['Client Name']}`;
+  const text = [
+    `New ${label} lead from Meta Lead Ads:`, '',
+    `Name:    ${fields['Client Name']}`,
+    `Phone:   ${fields['Phone Number'] || '—'}`,
+    `Email:   ${fields['Email'] || '—'}`,
+    `Source:  ${label}`,
+    `When:    ${fields['Inquiry Date'] || '—'}`,
+    `Details: ${fields['Notes']}`, '',
+    `Open the dashboard: https://pearl-view-lead-generation-rosy.vercel.app`,
+  ].join('\n');
+  await sendPlainEmail({ to, subject, text, refreshToken });
+}
+
+async function extractFacebookLeads({ notify = true } = {}) {
+  const csvUrl = process.env.FB_LEADS_SHEET_CSV_URL;
+  if (!csvUrl) { console.warn('[fb-leads] FB_LEADS_SHEET_CSV_URL not set — skipping'); return { processed: 0, skipped: 0 }; }
+  if (!sb.USE_SUPABASE) { console.warn('[fb-leads] USE_SUPABASE not true — skipping (fb_lead_id dedup needs Supabase)'); return { processed: 0, skipped: 0 }; }
+
+  let text;
+  try {
+    const resp = await axios.get(csvUrl, { responseType: 'text', timeout: 15000 });
+    text = String(resp.data || '');
+  } catch (err) {
+    console.error(`[ALERT] 🚨 [fb-leads] Failed to fetch sheet CSV: ${err.message}`);
+    return { processed: 0, error: err.message };
+  }
+
+  // Sharing revoked → Google serves an HTML login page instead of CSV.
+  const firstLine = (text.split('\n', 1)[0] || '');
+  if (/<html|<!doctype/i.test(text.slice(0, 200)) || !/(^|,)id(,|$)/.test(firstLine)) {
+    console.error('[ALERT] 🚨 [fb-leads] Sheet did not return CSV (sharing revoked / wrong URL?). Skipping.');
+    return { processed: 0, error: 'non-csv-response' };
+  }
+
+  const rows = csvToObjects(text).filter(r => r.id && !isTestRow(r) && (r.phone_number || r.email));
+  if (!rows.length) return { processed: 0, total: 0, skipped: 0 };
+
+  let existing;
+  try { existing = await sb.getFacebookLeadIds(); }
+  catch (err) { console.error(`[ALERT] 🚨 [fb-leads] Failed to load existing ids: ${err.message}`); return { processed: 0, error: err.message }; }
+  const seen = new Set(existing);
+
+  let processed = 0, skipped = 0;
+  for (const row of rows) {
+    if (seen.has(row.id)) { skipped += 1; continue; }
+    try {
+      const { fields } = mapFbRowToLead(row);
+      await sb.createLead(fields);
+      seen.add(row.id);
+      if (notify) {
+        await sendFbLeadEmail(fields).catch(e => console.error(`[fb-leads] email failed for ${row.id}: ${e.message}`));
+      }
+      processed += 1;
+      console.log(`[fb-leads] imported ${fields['Client Name']} (${fields['Lead Source']})`);
+    } catch (err) {
+      console.error(`[ALERT] 🚨 [fb-leads] Failed to import ${row.id}: ${err.message}`);
+    }
+  }
+  return { processed, total: rows.length, skipped };
+}
+
 // ─── Main extraction routines ────────────────────────────────────────────────
 async function extractFormLeads({ notify = true } = {}) {
   const refreshToken = process.env.GMAIL_FORM_REFRESH_TOKEN;
@@ -474,10 +574,15 @@ async function extractCallReports({ notify = true } = {}) {
 }
 
 async function runExtraction({ notify = true } = {}) {
-  const [form, call] = await Promise.allSettled([extractFormLeads({ notify }), extractCallReports({ notify })]);
+  const [form, call, facebook] = await Promise.allSettled([
+    extractFormLeads({ notify }),
+    extractCallReports({ notify }),
+    extractFacebookLeads({ notify }),
+  ]);
   return {
     form: form.status === 'fulfilled' ? form.value : { error: form.reason?.message },
     call: call.status === 'fulfilled' ? call.value : { error: call.reason?.message },
+    facebook: facebook.status === 'fulfilled' ? facebook.value : { error: facebook.reason?.message },
   };
 }
 
@@ -533,4 +638,5 @@ module.exports = {
   csvToObjects,
   isTestRow,
   mapFbRowToLead,
+  extractFacebookLeads,
 };
