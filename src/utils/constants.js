@@ -73,6 +73,7 @@ export const LEAD_SOURCES = [
   'website-crystalpro',
   'Phone Call',
   'Facebook',
+  'Instagram',
   'Google',
   'Other',
 ];
