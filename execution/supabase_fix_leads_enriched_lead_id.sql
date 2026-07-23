@@ -9,8 +9,18 @@
 -- legacy revenue rows that have no lead_id, and never let a lead match a revenue
 -- row that is explicitly linked to a different lead.
 --
+-- NOTE: uses DROP + CREATE (not CREATE OR REPLACE) because the leads table gained
+-- an fb_lead_id column, so `l.*` shifts the view's appended columns and
+-- CREATE OR REPLACE errors (42P16 "cannot change name of view column"). Wrapped
+-- in a transaction so there is no window where the view is missing, and grants
+-- are re-applied so the dashboard (anon/authenticated) can still read it.
+--
 -- Run once in the Supabase SQL editor (project zagmrxxmhyprhnhucqpo).
-create or replace view leads_enriched
+begin;
+
+drop view if exists leads_enriched;
+
+create view leads_enriched
 with (security_invoker = true) as
 select l.*,
   r.amount           as paid_amount,
@@ -34,3 +44,7 @@ left join lateral (
   order by (r.lead_id is not null) desc, r.amount desc   -- explicit lead link wins, then highest amount
   limit 1
 ) r on true;
+
+grant select on leads_enriched to anon, authenticated, service_role;
+
+commit;
