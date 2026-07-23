@@ -416,8 +416,12 @@ export default function CalendarPage() {
   const nmz = s => (s || '').trim().toLowerCase();
   const calBookingPhones = new Set(monthCalBookings.map(b => dig(b.phone)).filter(Boolean));
   const calBookingNames  = new Set(monthCalBookings.map(b => nmz(b.name)).filter(Boolean));
+  // Only currently-Booked leads appear via the lead path. A lead demoted out of
+  // Booked (e.g. → In Progress) keeps its Scheduled Cleaning Date, but must NOT
+  // linger on the calendar — so gate on status === 'booked' (whitelist), not a
+  // blacklist that let In Progress / New / Quote Sent through.
   const monthLeadBookings = leads
-    .filter(l => l.jobDate && l.status !== 'refused' && l.status !== 'scam' && l.status !== 'archived' && l.status !== 'job_done'
+    .filter(l => l.jobDate && l.status === 'booked'
       && !(dig(l.phone) && calBookingPhones.has(dig(l.phone)))
       && !(nmz(l.name) && calBookingNames.has(nmz(l.name))))
     .map(l => ({ ...l, parsedDate: new Date(l.jobDate), isCalBooking: false }))

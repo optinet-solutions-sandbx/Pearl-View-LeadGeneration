@@ -471,6 +471,27 @@ export function useLeads() {
         return prev.map(b => b.id === linked.id ? { ...b, bookingStatus: 'Completed' } : b);
       });
     }
+    // When a lead LEAVES Booked (→ any non-booked, non-done status), cancel its
+    // linked active booking so it drops off the calendar — mirror of the
+    // job_done → Completed sync above. Gated on the lead having BEEN Booked, so it
+    // never touches bookings for leads that were never booked (avoids same-name mixups).
+    if (prevLead.status === 'booked' && status !== 'booked' && status !== 'job_done') {
+      const phone = (currentLead.phone || '').replace(/\s/g, '').toLowerCase();
+      const name  = (currentLead.name  || '').trim().toLowerCase();
+      setCalBookings(prev => {
+        const isActive = b => b.bookingStatus !== 'Completed' && b.bookingStatus !== 'Cancelled';
+        const linked = prev.find(b => isActive(b) && (
+          (b.linkedLeadId && b.linkedLeadId === id) ||
+          (phone && (b.phone || '').replace(/\s/g, '').toLowerCase() === phone) ||
+          (!phone && name && (b.clientName || '').trim().toLowerCase() === name)
+        ));
+        if (!linked) return prev;
+        if (linked.airtableId) {
+          updateRecord(AT_TABLES.calendar, linked.airtableId, { 'Booking Status': 'Cancelled' });
+        }
+        return prev.map(b => b.id === linked.id ? { ...b, bookingStatus: 'Cancelled' } : b);
+      });
+    }
     return 'ok';
   }, [patchAirtable, leads]);
 
