@@ -104,6 +104,7 @@ const LEAD_COLS = {
 const REVENUE_COLS = {
   'Revenue Name': 'revenue_name', 'Date': 'date', 'Client Name': 'client_name', 'Phone': 'phone',
   'Job_Service': 'job_service', 'City': 'city', 'Payment_Method': 'payment_method', 'Amount': 'amount', 'Status': 'status',
+  'Lead Id': 'lead_id',
 };
 const BOOKING_COLS = {
   'Booking Name': 'booking_name', 'Client Name': 'client_name', 'Phone': 'phone', 'City': 'city',

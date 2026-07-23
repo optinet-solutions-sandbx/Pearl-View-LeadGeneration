@@ -192,6 +192,10 @@ function writeRevenue(lead, paidAmount, paymentMethod, status) {
     'Payment_Method': paymentMethod || 'Cash',
     'Amount':         paidAmount,
     'Status':         status || 'In Progress',
+    // Tie this payment to THIS specific lead so same-named, phone-less leads
+    // don't share it via the view's name fallback. Supabase only (the Airtable
+    // Revenue table has no such field, and sending it there would 422).
+    ...(USE_SUPABASE && lead?.id ? { 'Lead Id': lead.id } : {}),
   });
 }
 
@@ -1071,6 +1075,17 @@ export function useLeads() {
       ? { ...b, bookingStatus: 'Completed', amount: hasPayment ? amt : b.amount, paymentMethod: hasPayment ? paymentMethod : b.paymentMethod }
       : b));
 
+    // Resolve the linked lead FIRST (match by linked id, then phone, then name)
+    // so the Revenue row can be tied to it via lead_id — otherwise two same-named
+    // phone-less leads would share one payment through the view's name fallback.
+    const np = s => (s || '').replace(/\D/g, '');
+    const nm = s => (s || '').trim().toLowerCase();
+    const match = leads.find(l =>
+      (booking.linkedLeadId && l.id === booking.linkedLeadId) ||
+      (booking.phone && np(l.phone) && np(l.phone) === np(booking.phone)) ||
+      (booking.clientName && nm(l.name) && nm(l.name) === nm(booking.clientName))
+    );
+
     // 2. Revenue record — ONLY when an actual payment was taken
     if (hasPayment) {
       createRecord(AT_TABLES.revenue, {
@@ -1083,17 +1098,11 @@ export function useLeads() {
         'Payment_Method': paymentMethod || 'Cash',
         'Amount':         amt,
         'Status':         'Job Done',
+        ...(USE_SUPABASE && match?.id ? { 'Lead Id': match.id } : {}),
       });
     }
 
-    // 3. Find-or-create the Job Done lead (match by linked id, then phone, then name)
-    const np = s => (s || '').replace(/\D/g, '');
-    const nm = s => (s || '').trim().toLowerCase();
-    const match = leads.find(l =>
-      (booking.linkedLeadId && l.id === booking.linkedLeadId) ||
-      (booking.phone && np(l.phone) && np(l.phone) === np(booking.phone)) ||
-      (booking.clientName && nm(l.name) && nm(l.name) === nm(booking.clientName))
-    );
+    // 3. Move/create the Job Done lead using the match resolved above
 
     if (match) {
       // Move existing lead to Job Done; only stamp invoice/paid when a payment was taken
