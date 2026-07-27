@@ -1039,15 +1039,33 @@ export function useLeads() {
   }, [leads, patchAirtable]);
 
   const removeCalBooking = useCallback((id) => {
-    setCalBookings(prev => {
-      const booking = prev.find(b => b.id === id);
-      if (booking?.airtableId) {
-        // Update status to Cancelled in Airtable (don't delete — keep for records)
-        updateRecord(AT_TABLES.calendar, booking.airtableId, { 'Booking Status': 'Cancelled' });
+    const booking = calBookings.find(b => b.id === id);
+    if (booking?.airtableId) {
+      // Update status to Cancelled in Airtable/Supabase (don't delete — keep for records)
+      updateRecord(AT_TABLES.calendar, booking.airtableId, { 'Booking Status': 'Cancelled' });
+    }
+    setCalBookings(prev => prev.filter(b => b.id !== id));
+
+    // Inverse sync: if this booking was tied to a lead that's still Booked, move
+    // that lead out of Booked (→ In Progress) so it doesn't linger in the Booked
+    // column / calendar. Mirror of confirmBook (lead → Booked creates a booking).
+    // Only touch a currently-Booked lead — never un-complete a Job Done one.
+    if (booking) {
+      const np = s => (s || '').replace(/\D/g, '');
+      const nm = s => (s || '').trim().toLowerCase();
+      const lead = leads.find(l => l.status === 'booked' && (
+        (booking.linkedLeadId && l.id === booking.linkedLeadId) ||
+        (booking.phone && np(l.phone) && np(l.phone) === np(booking.phone)) ||
+        (booking.clientName && nm(l.name) && nm(l.name) === nm(booking.clientName))
+      ));
+      if (lead?.airtableId) {
+        patchAirtable(lead.airtableId, { 'Lead Status': 'In Progress' });
+        setLeads(prev => prev.map(l => l.id === lead.id
+          ? { ...l, status: 'in_progress', progress: PROG_MAP['in_progress'] || 35 }
+          : l));
       }
-      return prev.filter(b => b.id !== id);
-    });
-  }, []);
+    }
+  }, [calBookings, leads, patchAirtable]);
 
   const updateCalBooking = useCallback((id, data) => {
     setCalBookings(prev => {
