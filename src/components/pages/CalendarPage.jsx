@@ -414,8 +414,15 @@ export default function CalendarPage() {
   // phone (digits) OR Client Name, since calendar jobs often have no phone.
   const dig = s => (s || '').replace(/\D/g, '');
   const nmz = s => (s || '').trim().toLowerCase();
-  const calBookingPhones = new Set(monthCalBookings.map(b => dig(b.phone)).filter(Boolean));
-  const calBookingNames  = new Set(monthCalBookings.map(b => nmz(b.name)).filter(Boolean));
+  // Exclusion set = anyone with a booking THIS MONTH of ANY status, INCLUDING
+  // Cancelled. An active booking already renders via the booking path; a
+  // CANCELLED booking means the job is off, so a still-"Booked" lead must NOT
+  // resurface on the calendar via its lingering Scheduled Cleaning Date. (Building
+  // this from active-only bookings let cancelled-booking leads slip back in —
+  // e.g. Michelle Casella: lead Booked, booking Cancelled.)
+  const monthAllBookings = calBookings.filter(b => { const d = new Date(b.date); return d.getFullYear() === year && d.getMonth() === month; });
+  const calBookingPhones = new Set(monthAllBookings.map(b => dig(b.phone)).filter(Boolean));
+  const calBookingNames  = new Set(monthAllBookings.map(b => nmz(b.name)).filter(Boolean));
   // Only currently-Booked leads appear via the lead path. A lead demoted out of
   // Booked (e.g. → In Progress) keeps its Scheduled Cleaning Date, but must NOT
   // linger on the calendar — so gate on status === 'booked' (whitelist), not a
