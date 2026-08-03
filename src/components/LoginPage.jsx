@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { signIn } from '../utils/supabaseClient';
+import { BUSINESS_NAME, BUSINESS_INITIALS } from '../utils/constants';
 
 // Username + password login gate (Phase 7). The username maps to a hidden
 // Supabase Auth email; the logged-in session token then authorises all DB
@@ -29,8 +30,8 @@ export default function LoginPage({ onSuccess }) {
     <div style={wrap}>
       <form style={card} onSubmit={submit}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-          <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: '#0f766e', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '15px' }}>PV</div>
-          <div style={{ fontSize: '18px', fontWeight: 800, color: '#2f3a8f' }}>Pearl View</div>
+          <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: '#0f766e', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '15px' }}>{BUSINESS_INITIALS}</div>
+          <div style={{ fontSize: '18px', fontWeight: 800, color: '#2f3a8f' }}>{BUSINESS_NAME}</div>
         </div>
         <div style={{ fontSize: '14px', color: '#666', margin: '4px 0 22px' }}>Lead Management — sign in to continue</div>
 

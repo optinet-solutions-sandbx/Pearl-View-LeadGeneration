@@ -1,16 +1,26 @@
 const { google } = require('googleapis');
 const axios = require('axios');
 const sb = require('./sb');
+const { BUSINESS, DASHBOARD_URL, TZ } = require('./config');
+const { syncContactToList } = require('./mobilemessage');
 
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
 const AIRTABLE_TOKEN = process.env.AIRTABLE_TOKEN;
-const LEADS_TABLE_ID = 'tblS1keAU26CH08KJ';
+const LEADS_TABLE_ID = process.env.AIRTABLE_TABLE_ID || 'tblS1keAU26CH08KJ';
 
-const FORM_GMAIL_USER = 'service@pearlview.com.au';
-const CALL_GMAIL_USER = 'pearlviewwindowcleaning@gmail.com';
+// Gmail inboxes read for leads (identity carried by the refresh tokens; these
+// are documentation). A second location points its OWN Gmail accounts here.
+const FORM_GMAIL_USER = process.env.FORM_GMAIL_USER || 'service@pearlview.com.au';
+const CALL_GMAIL_USER = process.env.CALL_GMAIL_USER || 'pearlviewwindowcleaning@gmail.com';
 
-const FORM_LABEL_NAME = 'Form Leads';
-const CALL_LABEL_NAME = 'Call Recordings';
+const FORM_LABEL_NAME = process.env.FORM_LABEL || 'Form Leads';
+const CALL_LABEL_NAME = process.env.CALL_LABEL || 'Call Recordings';
+
+// Gmail search that matches this location's website form emails. NSW default
+// covers the Squarespace forms + the Pearl View site; a second location sets
+// FORM_GMAIL_MATCH to its own sender(s)/subject(s).
+const FORM_GMAIL_MATCH = process.env.FORM_GMAIL_MATCH
+  || '(from:form-submission@squarespace.info) OR (from:pearlview.com.au) OR subject:(new message from Pearl View)';
 
 // ─── OAuth helpers ───────────────────────────────────────────────────────────
 function buildOAuthClient() {
@@ -177,7 +187,7 @@ function formatInquiryDate(input) {
     hour: '2-digit',
     minute: '2-digit',
     hour12: true,
-    timeZone: 'Australia/Sydney',
+    timeZone: TZ,
   }).formatToParts(d);
   const get = (type) => parts.find(p => p.type === type)?.value || '';
   const ampm = get('dayPeriod').toLowerCase().replace(/\./g, '');
@@ -347,7 +357,7 @@ async function sendPlainEmail({ to, subject, text, html, refreshToken }) {
 }
 
 async function sendFbLeadEmail(fields) {
-  const to = process.env.FB_LEADS_NOTIFY_EMAIL || 'service@pearlview.com.au';
+  const to = process.env.FB_LEADS_NOTIFY_EMAIL || BUSINESS.email;
   const refreshToken = process.env.GMAIL_SEND_REFRESH_TOKEN || process.env.GMAIL_FORM_REFRESH_TOKEN;
   if (!refreshToken) { console.warn('[fb-leads] no send token — skipping email'); return; }
   const label = fields['Lead Source'];
@@ -360,7 +370,7 @@ async function sendFbLeadEmail(fields) {
     `Source:  ${label}`,
     `When:    ${fields['Inquiry Date'] || '—'}`,
     `Details: ${fields['Notes']}`, '',
-    `Open the dashboard: https://pearl-view-lead-generation-rosy.vercel.app`,
+    `Open the dashboard: ${DASHBOARD_URL}`,
   ].join('\n');
   await sendPlainEmail({ to, subject, text, refreshToken });
 }
@@ -403,6 +413,12 @@ async function extractFacebookLeads({ notify = true } = {}) {
       seen.add(row.id);
       if (notify) {
         await sendFbLeadEmail(fields).catch(e => console.error(`[fb-leads] email failed for ${row.id}: ${e.message}`));
+        await syncContactToList({
+          phone: fields['Phone Number'],
+          name: (fields['Client Name'] && fields['Client Name'] !== '—') ? fields['Client Name'] : '',
+          email: fields['Email'],
+          date: row.created_time,
+        });
       }
       processed += 1;
       console.log(`[fb-leads] imported ${fields['Client Name']} (${fields['Lead Source']})`);
@@ -431,7 +447,7 @@ async function extractFormLeads({ notify = true } = {}) {
   // Exclude our OWN Facebook/Instagram lead-alert emails: they are sent to this
   // same inbox and — being from @pearlview.com.au with Name:/Phone:/Email: lines
   // — would otherwise be mis-parsed as website form submissions → duplicate leads.
-  const query = `((from:form-submission@squarespace.info) OR (from:pearlview.com.au) OR subject:(new message from Pearl View)) -label:"${FORM_LABEL_NAME}" -subject:"New Facebook lead" -subject:"New Instagram lead" ${dateFilter}`;
+  const query = `(${FORM_GMAIL_MATCH}) -label:"${FORM_LABEL_NAME}" -subject:"New Facebook lead" -subject:"New Instagram lead" ${dateFilter}`;
   const messages = await fetchUnprocessedMessages(gmail, query);
 
   let processed = 0;
@@ -495,6 +511,8 @@ async function extractFormLeads({ notify = true } = {}) {
           subject: parsed.subject,
           leadSource: parsed.source,
         });
+        // Add to the Mobile Message broadcast list (best-effort, never throws).
+        await syncContactToList({ phone: parsed.phone, name: parsed.name, email: parsed.email, date: inquiryDate });
       }
 
       processed += 1;
@@ -570,6 +588,14 @@ async function extractCallReports({ notify = true } = {}) {
           email: '',
           subject: `Phone call ${parsed.callDuration}`,
           leadSource: parsed.source,
+        });
+        // Add caller to the broadcast list. Keep genuinely-unknown callers
+        // phone-only (no "Unknown Caller" name on the SMS contact).
+        await syncContactToList({
+          phone: parsed.phone,
+          name: (clientName && clientName !== 'Unknown Caller') ? clientName : '',
+          email: '',
+          date: inquiryDate,
         });
       }
 

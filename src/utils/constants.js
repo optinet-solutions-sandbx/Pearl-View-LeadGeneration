@@ -1,3 +1,11 @@
+// Per-deployment business display name. A second location (e.g. Asaf's Perth
+// branch) sets VITE_BUSINESS_NAME at build time; NSW keeps the default.
+export const BUSINESS_NAME = import.meta.env.VITE_BUSINESS_NAME || 'Pearl View';
+// Two-letter badge shown in the sidebar/login logo. Auto-derived from the name
+// (Pearl View → PV) unless VITE_BUSINESS_INITIALS overrides.
+export const BUSINESS_INITIALS = (import.meta.env.VITE_BUSINESS_INITIALS
+  || BUSINESS_NAME.split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase());
+
 export const COLS = [
   { id: 'new',        label: 'New Lead',    dot: '#0d9488', cnt: '#ccfbf1/#0f766e' },
   { id: 'in_progress',label: 'In Progress', dot: '#d97706', cnt: '#fef3c7/#92400e' },

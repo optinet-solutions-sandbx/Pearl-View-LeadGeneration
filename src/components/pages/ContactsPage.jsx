@@ -264,7 +264,7 @@ export default function ContactsPage() {
         }}>
           <span>✓</span>
           <span>
-            Synced {syncBanner.synced} new lead{syncBanner.synced === 1 ? '' : 's'} from Airtable
+            Synced {syncBanner.synced} new lead{syncBanner.synced === 1 ? '' : 's'} to the broadcast list
             {syncBanner.remaining > 0 ? ` (${syncBanner.remaining} more on next refresh)` : ''}.
           </span>
         </div>

@@ -21,7 +21,7 @@ export const USE_SUPABASE = import.meta.env.VITE_USE_SUPABASE === 'true';
 // under RLS) — the app just prompts a fresh login instead.
 const SB_REF = (SB_URL || '').match(/\/\/([a-z0-9]+)\./)?.[1] || 'sb';
 const LS = { access: `pv_sb_access_${SB_REF}`, refresh: `pv_sb_refresh_${SB_REF}`, exp: `pv_sb_exp_${SB_REF}` };
-const AUTH_DOMAIN = 'pearlview.app';
+const AUTH_DOMAIN = import.meta.env.VITE_AUTH_DOMAIN || 'pearlview.app';
 
 function bearer() {
   try {

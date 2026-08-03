@@ -17,12 +17,14 @@
 // The tour is Next-driven — the user never has to click the real element, so the
 // highlighted control does not need to be reachable through the dimmed overlay.
 
+import { BUSINESS_NAME } from '../../utils/constants';
+
 const tourSteps = [
   {
     target: null,
     page: 'leads',
     placement: 'center',
-    title: 'Welcome to Pearl View 👋',
+    title: `Welcome to ${BUSINESS_NAME} 👋`,
     body: 'This is your command center for the window-cleaning business. Every web-form inquiry and phone call is captured here automatically, so nothing slips through the cracks. This quick walkthrough shows how a lead travels from first contact all the way to a paid, completed job — and where to track the money along the way.',
     bullets: [
       { label: 'Capture', text: 'leads arrive from your two websites and phone line' },

@@ -1,4 +1,5 @@
 import { useLeadsContext } from '../context/LeadsContext';
+import { BUSINESS_NAME, BUSINESS_INITIALS } from '../utils/constants';
 
 export const PAGE_TITLES = {
   leads:            'Leads Dashboard',
@@ -120,9 +121,9 @@ export default function Sidebar() {
 
       <aside className={`sidebar${sidebarOpen ? ' open' : ''}`}>
         <div className="logo">
-          <div className="logo-icon">PV</div>
+          <div className="logo-icon">{BUSINESS_INITIALS}</div>
           <div>
-            <span className="logo-name">Pearl View</span>
+            <span className="logo-name">{BUSINESS_NAME}</span>
             <span className="logo-sub">Lead Management</span>
           </div>
         </div>

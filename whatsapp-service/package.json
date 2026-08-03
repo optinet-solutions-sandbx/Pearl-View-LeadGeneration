@@ -1,0 +1,19 @@
+{
+  "name": "pearl-view-whatsapp-service",
+  "version": "1.0.0",
+  "description": "WhatsApp notification + AI assistant service for Pearl View",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0",
+    "googleapis": "^144.0.0",
+    "nodemailer": "^9.0.1",
+    "openai": "^4.0.0",
+    "pdfkit": "^0.19.1"
+  }
+}
