@@ -74,7 +74,7 @@ function parseCrystalProForm(body) {
   };
 }
 
-function parsePearlViewForm(body) {
+function parsePearlViewForm(body, source = 'website-pearlview') {
   // Multiple "Name:" lines possible (empty header line + value line). Pick first non-empty.
   const nameMatches = [...body.matchAll(/\*?Name:\*?[ \t]*(.+)/gi)].map(m => cleanText(m[1])).filter(Boolean);
   const name = nameMatches[0] || '';
@@ -87,7 +87,7 @@ function parsePearlViewForm(body) {
     phone,
     email,
     subject: message,
-    source: 'website-pearlview',
+    source,
   };
 }
 
@@ -95,7 +95,7 @@ function parseCallReport(body) {
   const time = body.match(/Time:\s*(.+)/i)?.[1]?.trim() || '';
   const caller = normalizePhone(body.match(/Caller:\s*(.+)/i)?.[1] || '');
   const called = normalizePhone(body.match(/Called:\s*(.+)/i)?.[1] || '');
-  const lengthMatch = body.match(/Length:\s*(\d+)\s*seconds/i);
+  const lengthMatch = body.match(/Length:\s*(\d+)\s*second/i);
   const lengthSec = lengthMatch ? parseInt(lengthMatch[1], 10) : null;
   const duration = lengthSec != null
     ? `${Math.floor(lengthSec / 60)}m ${lengthSec % 60}s`
@@ -471,6 +471,10 @@ async function extractFormLeads({ notify = true } = {}) {
         // Pearl View website form — matched by subject OR sender (form emails come
         // from *@pearlview.com.au with a "Name:/Phone:/Email:/Message:/---/Date:" body).
         parsed = parsePearlViewForm(body);
+      } else if (process.env.WEBSITE_SOURCE) {
+        // Config-driven single-brand location (e.g. Perth): same Name/Phone/Email/
+        // Message extraction as the Pearl View form; source tag comes from env.
+        parsed = parsePearlViewForm(body, process.env.WEBSITE_SOURCE);
       } else {
         console.warn(`[email-extractor] Unknown form subject: ${subject} (from: ${from})`);
         continue;
