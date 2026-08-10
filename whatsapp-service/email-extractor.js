@@ -612,16 +612,93 @@ async function extractCallReports({ notify = true } = {}) {
   return { processed, total: messages.length };
 }
 
+// ── Direct inbound email leads (opt-in via DIRECT_LEADS_MATCH) ─────────────────
+// Prospects who EMAIL the business directly (or reply in a thread) rather than
+// using the website form. No structured fields: name/email come from the From
+// header, phone is scanned from the body (may be absent). One lead per Gmail
+// thread; anyone already a lead is skipped (no duplicates). DIRECT_LEADS_MATCH
+// is a Gmail query that MUST exclude automated senders + the owner's own address
+// (this is the heuristic noise filter — no AI). NSW leaves it unset → disabled.
+async function extractDirectEmailLeads({ notify = true } = {}) {
+  const match = process.env.DIRECT_LEADS_MATCH;
+  if (!match) return { processed: 0, skipped: 'disabled' };
+  const refreshToken = process.env.GMAIL_FORM_REFRESH_TOKEN;   // same inbox as the form reader
+  if (!refreshToken) { console.warn('[email-extractor] no form token — skipping direct-email leads'); return { processed: 0 }; }
+  const gmail = gmailClient(refreshToken);
+  const labelName = process.env.DIRECT_LEADS_LABEL || 'Direct Leads';
+  const labelId = await ensureLabel(gmail, labelName);
+  const source = process.env.DIRECT_LEADS_SOURCE || 'Email';
+  const dateFilter = process.env.EMAIL_LOOKBACK || 'newer_than:6m';
+  const query = `(${match}) -label:"${labelName}" ${dateFilter}`;
+  const messages = await fetchUnprocessedMessages(gmail, query);
+
+  // One lead per conversation: keep the EARLIEST message per Gmail threadId.
+  const byThread = new Map();
+  for (const m of messages) {
+    const t = getMessageDate(m).getTime();
+    const cur = byThread.get(m.threadId);
+    if (!cur || t < cur._t) byThread.set(m.threadId, Object.assign({ _t: t }, m));
+  }
+
+  let processed = 0;
+  for (const message of byThread.values()) {
+    try {
+      const headers = message.payload?.headers || [];
+      const fromRaw = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
+      const subject = getSubject(message);
+      const emailMatch = fromRaw.match(/[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+/);
+      const email = emailMatch ? emailMatch[0].toLowerCase() : '';
+      let name = fromRaw.replace(/<[^>]*>/, '').replace(/["']/g, '').trim();
+      if (!name || name.includes('@')) name = email ? email.split('@')[0] : '';
+      const body = decodeBody(message.payload);
+      const phoneMatch = body.match(/(?:\+?61[\s-]?|0)[2-8](?:[\s-]?\d){8}/);
+      const phone = phoneMatch ? normalizePhone(phoneMatch[0]) : '';
+      if (!email && !phone) continue;
+
+      // Dedup: one lead per person. Already a lead (form/call/earlier email)?
+      // Just label the thread and skip — never duplicate.
+      const existing = await findExistingLead({ phone, email });
+      if (existing) { await applyLabel(gmail, message.id, labelId); continue; }
+
+      const inquiryDate = formatInquiryDate(getMessageDate(message));
+      const snippet = cleanText(body).replace(/\n+/g, ' ').slice(0, 300);
+      await writeLeadToAirtable({
+        'Client Name': name || '—',
+        'Phone Number': phone,
+        'Email': email,
+        'Inquiry Subject/Reason': subject || 'Email enquiry',
+        'Inquiry Date': inquiryDate,
+        'Notes': `📧 Direct email enquiry ${inquiryDate}. ${snippet}`,
+        'Lead Source': source,
+        'Lead Status': 'New Lead',
+      });
+      await applyLabel(gmail, message.id, labelId);
+
+      if (notify) {
+        await triggerWhatsAppNotification({ name, phone, email, subject, leadSource: source });
+        await syncContactToList({ phone, name, email, date: inquiryDate });
+      }
+      processed += 1;
+      console.log(`[email-extractor] Direct email lead: ${name} <${email}> (${source})`);
+    } catch (err) {
+      console.error(`[ALERT] 🚨 Failed to process direct email ${message.id}: ${err.message}`);
+    }
+  }
+  return { processed, total: byThread.size };
+}
+
 async function runExtraction({ notify = true } = {}) {
-  const [form, call, facebook] = await Promise.allSettled([
+  const [form, call, facebook, direct] = await Promise.allSettled([
     extractFormLeads({ notify }),
     extractCallReports({ notify }),
     extractFacebookLeads({ notify }),
+    extractDirectEmailLeads({ notify }),
   ]);
   return {
     form: form.status === 'fulfilled' ? form.value : { error: form.reason?.message },
     call: call.status === 'fulfilled' ? call.value : { error: call.reason?.message },
     facebook: facebook.status === 'fulfilled' ? facebook.value : { error: facebook.reason?.message },
+    direct: direct.status === 'fulfilled' ? direct.value : { error: direct.reason?.message },
   };
 }
 
@@ -678,4 +755,5 @@ module.exports = {
   isTestRow,
   mapFbRowToLead,
   extractFacebookLeads,
+  extractDirectEmailLeads,
 };
