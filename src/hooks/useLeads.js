@@ -165,7 +165,7 @@ function normaliseCalBooking(rec) {
     assignedWorker: f['Assigned Worker'] || '',
     upsellAmount:   f['Upsell Amount']   || 0,
     upsellNotes:    f['Upsell Notes']    || '',
-    linkedLeadId:   null,
+    linkedLeadId:   f['Lead Id'] || null,
     bookingSource:  isLeadBooking ? 'Lead' : 'Manual',
   };
 }
@@ -993,6 +993,9 @@ export function useLeads() {
       'Amount':          record.amount || 0,
       'Job Time':        record.jobTime,
       'Assigned Worker': record.assignedWorker,
+      // Persist the stable link so bookings match their lead by id, not fuzzy
+      // phone/name (covers confirmBook, which passes linkedLeadId).
+      ...(record.linkedLeadId ? { 'Lead Id': record.linkedLeadId } : {}),
     };
     const airtableId = await createRecord(AT_TABLES.calendar, atFields);
     if (airtableId) {
