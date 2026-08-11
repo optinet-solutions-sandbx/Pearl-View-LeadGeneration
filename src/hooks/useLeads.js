@@ -546,10 +546,21 @@ export function useLeads() {
       const revStatus = wasJobDone ? 'Job Done' : 'In Progress';
       await writeRevenue(updatedLead, paidAmount, paymentMethod, revStatus);
     }
-    // Update linked calendar booking if one exists (match by phone)
-    if (paid && paidAmount > 0 && updatedLead?.phone) {
+    // Sync the linked calendar booking's amount to the payment so the calendar
+    // and the Job Done column never disagree. Match by linked id, then phone,
+    // then NAME for phone-less leads. Previously this was gated to leads WITH a
+    // phone, so a phone-less lead (e.g. calendar-created 'Other' leads) kept its
+    // stale booking amount while the recorded payment differed — e.g. Bailey:
+    // booking $800 but paid $300.
+    if (paid && paidAmount > 0) {
+      const bphone = (updatedLead?.phone || '').replace(/\s/g, '').toLowerCase();
+      const bname  = (updatedLead?.name  || '').trim().toLowerCase();
       setCalBookings(prev => {
-        const linked = prev.find(b => b.linkedLeadId === id || (b.phone && updatedLead.phone && b.phone === updatedLead.phone));
+        const linked = prev.find(b =>
+          (b.linkedLeadId && b.linkedLeadId === id) ||
+          (bphone && (b.phone || '').replace(/\s/g, '').toLowerCase() === bphone) ||
+          (!bphone && bname && (b.clientName || '').trim().toLowerCase() === bname)
+        );
         if (linked?.airtableId) {
           updateRecord(AT_TABLES.calendar, linked.airtableId, {
             'Booking Status': 'Completed',
