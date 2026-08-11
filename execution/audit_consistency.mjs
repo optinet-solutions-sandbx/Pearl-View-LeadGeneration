@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { findLinked, computeReconcile } from '../src/utils/reconcile.js';
 
 const REPAIR = process.argv.includes('--repair');
-const env = Object.fromEntries(readFileSync('.env', 'utf8').split(/\r?\n/)
+const env = Object.fromEntries(readFileSync(process.env.ENV_FILE || '.env', 'utf8').split(/\r?\n/)
   .filter(l => l.includes('=')).map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, '')]; }));
 const URL = env.SUPABASE_URL || env.VITE_SUPABASE_URL;
 const KEY = env.SUPABASE_SERVICE_ROLE || env.SUPABASE_SERVICE_ROLE_KEY;
