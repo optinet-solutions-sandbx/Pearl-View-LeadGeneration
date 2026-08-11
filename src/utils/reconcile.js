@@ -50,6 +50,10 @@ function bookingPatchFor(lead, booking, revenue) {
 }
 
 function revenuePatchFor(lead, revenue) {
-  const desired = lead.status === 'job_done' ? 'Job Done' : 'In Progress';
-  return revenue.status !== desired ? { 'Status': desired } : null;
+  // Promote-only: a recorded payment is real income. Mark it Job Done when the
+  // lead is done; NEVER demote a Job-Done revenue — a matched-but-stale lead
+  // (e.g. an archived "Unknown Caller" call sharing a customer's phone) must not
+  // de-income a real payment.
+  if (lead.status === 'job_done' && revenue.status !== 'Job Done') return { 'Status': 'Job Done' };
+  return null;
 }

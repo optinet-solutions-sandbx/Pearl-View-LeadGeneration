@@ -47,8 +47,8 @@ assert.strictEqual(
 assert.deepStrictEqual(
   computeReconcile({ lead: { status: 'job_done' }, booking: null, revenue: { amount: 300, status: 'In Progress' } }).revenuePatch,
   { 'Status': 'Job Done' }, 'job_done sets revenue Job Done');
-assert.deepStrictEqual(
+assert.strictEqual(
   computeReconcile({ lead: { status: 'in_progress' }, booking: null, revenue: { amount: 300, status: 'Job Done' } }).revenuePatch,
-  { 'Status': 'In Progress' }, 'non-done sets revenue In Progress');
+  null, 'promote-only: never demote a Job-Done revenue (real income is not de-incomed)');
 
 console.log('PASS: reconcile core');
