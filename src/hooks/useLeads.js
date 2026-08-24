@@ -163,6 +163,7 @@ function normaliseCalBooking(rec) {
     amount:         f['Amount']          || 0,
     jobTime:        f['Job Time']        || '',
     assignedWorker: f['Assigned Worker'] || '',
+    assignedWorkerId: f['Assigned Worker Id'] || null,
     upsellAmount:   f['Upsell Amount']   || 0,
     upsellNotes:    f['Upsell Notes']    || '',
     linkedLeadId:   f['Lead Id'] || null,
@@ -973,6 +974,7 @@ export function useLeads() {
       service: data.service || '', paymentMethod: data.paymentMethod || 'Cash',
       date: data.date || '', bookingStatus: data.bookingStatus || 'Scheduled', amount: data.amount || 0,
       jobTime: data.jobTime || '', assignedWorker: data.assignedWorker || '',
+      assignedWorkerId: data.assignedWorkerId || null,
       upsellAmount: 0, upsellNotes: '',
       linkedLeadId: data.linkedLeadId || null,
       bookingSource: isFromLead ? 'Lead' : 'Manual',
@@ -993,6 +995,8 @@ export function useLeads() {
       'Amount':          record.amount || 0,
       'Job Time':        record.jobTime,
       'Assigned Worker': record.assignedWorker,
+      // Scopes the technician dashboard (RLS matches assigned_worker_id = auth.uid)
+      ...(record.assignedWorkerId ? { 'Assigned Worker Id': record.assignedWorkerId } : {}),
       // Persist the stable link so bookings match their lead by id, not fuzzy
       // phone/name (covers confirmBook, which passes linkedLeadId).
       ...(record.linkedLeadId ? { 'Lead Id': record.linkedLeadId } : {}),
@@ -1094,6 +1098,7 @@ export function useLeads() {
         if (data.amount        !== undefined) patch['Amount']         = data.amount;
         if (data.jobTime       !== undefined) patch['Job Time']       = data.jobTime;
         if (data.assignedWorker !== undefined) patch['Assigned Worker'] = data.assignedWorker;
+        if (data.assignedWorkerId !== undefined) patch['Assigned Worker Id'] = data.assignedWorkerId;
         if (data.upsellAmount  !== undefined) patch['Upsell Amount']  = data.upsellAmount;
         if (data.upsellNotes   !== undefined) patch['Upsell Notes']   = data.upsellNotes;
         if (Object.keys(patch).length) updateRecord(AT_TABLES.calendar, booking.airtableId, patch);

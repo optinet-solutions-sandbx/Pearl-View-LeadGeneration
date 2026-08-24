@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useLeadsContext } from '../../context/LeadsContext';
 import { createRecord, AT_TABLES } from '../../utils/airtableSync';
+import { fetchTechnicians } from '../../utils/supabaseClient';
 import { overlayClose } from '../../utils/overlayClose';
 
 const DAYS     = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -155,7 +156,7 @@ function TimePicker({ value, onChange }) {
 }
 
 // ── Shared appointment form fields ───────────────────────────────────────────
-function AppointmentFormFields({ form, setField, leads = [], clients = [] }) {
+function AppointmentFormFields({ form, setField, leads = [], clients = [], technicians = [] }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   const suggestions = useMemo(() => {
@@ -233,22 +234,41 @@ function AppointmentFormFields({ form, setField, leads = [], clients = [] }) {
       <input value={form.address || ''} onChange={e => setField('address', e.target.value)} placeholder="e.g. 123 Main St" style={fInput} />
       <label style={fLbl}>Job Time</label>
       <TimePicker value={form.jobTime || ''} onChange={v => setField('jobTime', v)} />
-      <label style={fLbl}>Assigned Worker</label>
-      <input value={form.assignedWorker || ''} onChange={e => setField('assignedWorker', e.target.value)} placeholder="e.g. John" style={{ ...fInput, marginBottom: 0 }} />
+      <label style={fLbl}>Assigned Worker{technicians.length === 0 && ' (name)'}</label>
+      {technicians.length > 0 ? (
+        // Assigning a technician account scopes their dashboard (RLS on
+        // assigned_worker_id). Mirror the display name into assignedWorker too.
+        <select
+          value={form.assignedWorkerId || ''}
+          onChange={e => {
+            const id = e.target.value;
+            const t = technicians.find(x => x.id === id);
+            setField('assignedWorkerId', id || null);
+            setField('assignedWorker', t ? t.display_name : '');
+          }}
+          style={{ ...fInput, appearance: 'none', marginBottom: 0 }}
+        >
+          <option value="">— Unassigned —</option>
+          {technicians.map(t => <option key={t.id} value={t.id}>{t.display_name}</option>)}
+        </select>
+      ) : (
+        <input value={form.assignedWorker || ''} onChange={e => setField('assignedWorker', e.target.value)} placeholder="e.g. John" style={{ ...fInput, marginBottom: 0 }} />
+      )}
     </>
   );
 }
 
 // ── Edit booking modal ────────────────────────────────────────────────────────
-function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, leads = [], clients = [] }) {
+function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, leads = [], clients = [], technicians = [] }) {
   const [form, setForm] = useState({
-    clientName:     booking.clientName     || '',
-    phone:          booking.phone          || '',
-    city:           booking.city           || '',
-    address:        booking.address        || '',
-    service:        booking.service        || 'Window Cleaning',
-    jobTime:        booking.jobTime        || '',
-    assignedWorker: booking.assignedWorker || '',
+    clientName:       booking.clientName       || '',
+    phone:            booking.phone            || '',
+    city:             booking.city             || '',
+    address:          booking.address          || '',
+    service:          booking.service          || 'Window Cleaning',
+    jobTime:          booking.jobTime          || '',
+    assignedWorker:   booking.assignedWorker   || '',
+    assignedWorkerId: booking.assignedWorkerId || '',
   });
   const [err,          setErr]          = useState('');
   const [showComplete, setShowComplete] = useState(false);
@@ -283,7 +303,7 @@ function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, lead
             </div>
           )}
 
-          <AppointmentFormFields form={form} setField={setField} leads={leads} clients={clients} />
+          <AppointmentFormFields form={form} setField={setField} leads={leads} clients={clients} technicians={technicians} />
 
           {err && <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '10px', padding: '8px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px' }}>{err}</div>}
 
@@ -322,8 +342,8 @@ function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, lead
 }
 
 // ── Booking modal (click a day on the calendar) ───────────────────────────────
-function BookingModal({ year, month, day, leads, clients = [], addCalBooking, onClose }) {
-  const [form,    setForm]    = useState({ clientName: '', phone: '', city: '', address: '', service: 'Window Cleaning', jobTime: '', assignedWorker: '', amount: '', method: 'Cash' });
+function BookingModal({ year, month, day, leads, clients = [], technicians = [], addCalBooking, onClose }) {
+  const [form,    setForm]    = useState({ clientName: '', phone: '', city: '', address: '', service: 'Window Cleaning', jobTime: '', assignedWorker: '', assignedWorkerId: '', amount: '', method: 'Cash' });
   const [formErr, setFormErr] = useState('');
 
   const targetDate  = mkDate(year, month, day);
@@ -354,7 +374,7 @@ function BookingModal({ year, month, day, leads, clients = [], addCalBooking, on
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: 'var(--gray-400)', padding: '4px' }}>✕</button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '16px 20px' }}>
-          <AppointmentFormFields form={form} setField={setField} leads={leads} clients={clients} />
+          <AppointmentFormFields form={form} setField={setField} leads={leads} clients={clients} technicians={technicians} />
 
           {/* Amount here is the EXPECTED/quote figure — it is NOT income until the
               job is marked done + payment recorded (prevents double-counting). */}
@@ -403,6 +423,10 @@ export default function CalendarPage() {
   const [tableSearch,    setTableSearch]    = useState('');
   const [tablePage,      setTablePage]      = useState(0);
   const [hideCompleted,  setHideCompleted]  = useState(true);
+  const [technicians,    setTechnicians]    = useState([]);
+
+  // Technician accounts for the assignment dropdown (empty → free-text worker).
+  useEffect(() => { fetchTechnicians().then(setTechnicians); }, []);
 
   const monthCalBookings = calBookings
     .filter(b => { const d = new Date(b.date); return d.getFullYear() === year && d.getMonth() === month; })
@@ -725,7 +749,7 @@ export default function CalendarPage() {
       {modalDay !== null && (
         <BookingModal
           year={year} month={month} day={modalDay}
-          leads={leads} clients={clients}
+          leads={leads} clients={clients} technicians={technicians}
           addCalBooking={addCalBooking}
           onClose={() => setModalDay(null)}
         />
@@ -733,7 +757,7 @@ export default function CalendarPage() {
       {editBooking && (
         <EditBookingModal
           booking={editBooking}
-          leads={leads} clients={clients}
+          leads={leads} clients={clients} technicians={technicians}
           onSave={data => { updateCalBooking(editBooking.id, data); setEditBooking(null); }}
           onComplete={data => handleComplete(editBooking, data)}
           onCancel={() => { removeCalBooking(editBooking.id); setEditBooking(null); }}
