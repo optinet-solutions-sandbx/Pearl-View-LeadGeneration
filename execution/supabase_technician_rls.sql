@@ -30,11 +30,15 @@ insert into profiles (id, role, display_name)
 select id, 'owner', 'Owner' from auth.users where email = 'pearlview@pearlview.app'
 on conflict (id) do update set role = 'owner', active = true;
 
--- 5. column guard: a non-owner may change ONLY booking_status + tech_notes.
+-- 5. column guard: a LOGGED-IN non-owner (i.e. a technician) may change ONLY
+--    booking_status + tech_notes. The backend (service_role) has no auth.uid(),
+--    so it is exempt — otherwise the trigger would block all server-side booking
+--    writes (createBooking is an INSERT so it's already unaffected, but future
+--    backend UPDATEs must not be blocked). Owner (is_owner) is exempt too.
 create or replace function bookings_tech_guard() returns trigger
   language plpgsql security definer as $$
 begin
-  if not is_owner() then
+  if auth.uid() is not null and not is_owner() then
     if (new.booking_name, new.client_name, new.phone, new.city, new.job_service,
         new.date, new.amount, new.job_time, new.assigned_worker, new.upsell_amount,
         new.upsell_notes, new.lead_id, new.assigned_worker_id)
