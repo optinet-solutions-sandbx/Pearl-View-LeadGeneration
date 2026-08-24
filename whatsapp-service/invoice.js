@@ -26,8 +26,11 @@ const C = {
 
 const money = n => `$${Number(n || 0).toFixed(2)}`;
 
-// Australian GST — added 10% on top of the (GST-exclusive) line-item amounts.
-const GST_RATE = 0.1;
+// Australian GST — added on top of the (GST-exclusive) line-item amounts.
+// Env-driven so a non-GST-registered branch can switch it off (GST_RATE=0);
+// defaults to 10% so NSW is unchanged. GST_ON hides the GST line entirely at 0.
+const GST_RATE = process.env.GST_RATE != null ? parseFloat(process.env.GST_RATE) : 0.1;
+const GST_ON   = GST_RATE > 0;
 
 // Build the secure "rebook" link to our booking page. The lead id + suggested
 // date are wrapped in a SIGNED, EXPIRING token (90 days) — the URL exposes no
@@ -79,7 +82,7 @@ function buildInvoiceHtml({ greeting, invoiceLabel, totalStr, rebookUrl }) {
               <tr><td style="padding:16px 18px;">
                 <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#0f766e;font-weight:700;">Amount due</div>
                 <div style="font-size:26px;font-weight:800;color:#0f766e;margin-top:2px;">${totalStr}</div>
-                <div style="font-size:12px;color:#0f766e;margin-top:2px;">incl. GST · payable by bank transfer (details on the invoice)</div>
+                <div style="font-size:12px;color:#0f766e;margin-top:2px;">${GST_ON ? 'incl. GST · ' : ''}payable by bank transfer (details on the invoice)</div>
               </td></tr>
             </table>
           </td></tr>
@@ -200,18 +203,26 @@ function generateInvoicePdf(data) {
 
     const gst   = subtotal * GST_RATE;
     const total = subtotal + gst;
-    doc.fillColor(C.link).fontSize(11).font('Helvetica')
-       .text('Subtotal', 360, ty, { width: 90, align: 'right' });
-    doc.fillColor('#000').font('Helvetica-Bold')
-       .text(money(subtotal), 455, ty, { width: R - 455, align: 'right' });
-    doc.fillColor(C.link).fontSize(11).font('Helvetica')
-       .text('GST (10%)', 360, ty + 20, { width: 90, align: 'right' });
-    doc.fillColor('#000').font('Helvetica-Bold')
-       .text(money(gst), 455, ty + 20, { width: R - 455, align: 'right' });
-    doc.fillColor(C.link).fontSize(11).font('Helvetica-Bold')
-       .text('Total', 360, ty + 42, { width: 90, align: 'right' });
-    doc.fillColor('#000').font('Helvetica-Bold')
-       .text(money(total), 455, ty + 42, { width: R - 455, align: 'right' });
+    if (GST_ON) {
+      doc.fillColor(C.link).fontSize(11).font('Helvetica')
+         .text('Subtotal', 360, ty, { width: 90, align: 'right' });
+      doc.fillColor('#000').font('Helvetica-Bold')
+         .text(money(subtotal), 455, ty, { width: R - 455, align: 'right' });
+      doc.fillColor(C.link).fontSize(11).font('Helvetica')
+         .text(`GST (${Math.round(GST_RATE * 100)}%)`, 360, ty + 20, { width: 90, align: 'right' });
+      doc.fillColor('#000').font('Helvetica-Bold')
+         .text(money(gst), 455, ty + 20, { width: R - 455, align: 'right' });
+      doc.fillColor(C.link).fontSize(11).font('Helvetica-Bold')
+         .text('Total', 360, ty + 42, { width: 90, align: 'right' });
+      doc.fillColor('#000').font('Helvetica-Bold')
+         .text(money(total), 455, ty + 42, { width: R - 455, align: 'right' });
+    } else {
+      // No GST (e.g. non-GST-registered branch): show Total = subtotal only.
+      doc.fillColor(C.link).fontSize(11).font('Helvetica-Bold')
+         .text('Total', 360, ty, { width: 90, align: 'right' });
+      doc.fillColor('#000').font('Helvetica-Bold')
+         .text(money(total), 455, ty, { width: R - 455, align: 'right' });
+    }
 
     doc.end();
   });
@@ -424,7 +435,7 @@ async function sendInvoiceForLead(body = {}) {
   const rebookUrl = buildRebookUrl(leadId, suggestedNextDate(), recipient);
 
   const bodyText = `Hi${greeting},\n\nThanks for your business. Your invoice${invoiceLabel} for services rendered is attached as a PDF.\n\n`
-    + `Amount due: ${totalStr} (incl. GST)\nPayable by bank transfer — details are on the invoice.\n`
+    + `Amount due: ${totalStr}${GST_ON ? ' (incl. GST)' : ''}\nPayable by bank transfer — details are on the invoice.\n`
     + `\nThank you,\n${BRAND_NAME}\n${BUSINESS.email}`
     + (rebookUrl ? `\n\n— — —\nDue for another clean soon? Book your next visit: ${rebookUrl}` : '');
   const bodyHtml = buildInvoiceHtml({ greeting, invoiceLabel, totalStr, rebookUrl });
