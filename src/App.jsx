@@ -1,6 +1,6 @@
 import { LeadsProvider, useLeadsContext } from './context/LeadsContext';
 import { useEffect, useState } from 'react';
-import { USE_SUPABASE, hasSession, refreshSession } from './utils/supabaseClient';
+import { USE_SUPABASE, hasSession, refreshSession, fetchCurrentProfile } from './utils/supabaseClient';
 import LoginPage from './components/LoginPage';
 import Sidebar, { MobileBottomNav } from './components/Sidebar';
 import TopBar from './components/TopBar';
@@ -24,6 +24,7 @@ import ReportsPage from './components/pages/ReportsPage';
 import ContactsPage from './components/pages/ContactsPage';
 import BroadcastPage from './components/pages/BroadcastPage';
 import BookingPage from './components/BookingPage';
+import TechnicianView from './components/pages/TechnicianView';
 
 function PageBody() {
   const { currentPage } = useLeadsContext();
@@ -100,16 +101,29 @@ function Dashboard() {
 }
 
 // Login gate (only when Supabase is the backend). Tries a token refresh on load
-// so a returning owner stays signed in; otherwise shows the login screen.
+// so a returning owner stays signed in; otherwise shows the login screen. Once
+// signed in, loads the profile: a technician gets the scoped TechnicianView, the
+// owner (or any pre-profiles/legacy account) gets the full dashboard.
 function AuthGate() {
-  const [state, setState] = useState(hasSession() ? 'in' : 'checking');
+  const [state, setState] = useState(hasSession() ? 'loading' : 'checking');
+  const [profile, setProfile] = useState(null);
+
   useEffect(() => {
     if (state === 'checking') {
-      refreshSession().then(ok => setState(ok ? 'in' : 'out'));
+      refreshSession().then(ok => setState(ok ? 'loading' : 'out'));
     }
   }, [state]);
-  if (state === 'checking') return null;
-  if (state !== 'in') return <LoginPage onSuccess={() => setState('in')} />;
+
+  // After a valid session, resolve the role once before rendering.
+  useEffect(() => {
+    if (state === 'loading') {
+      fetchCurrentProfile().then(p => { setProfile(p); setState('in'); });
+    }
+  }, [state]);
+
+  if (state === 'checking' || state === 'loading') return null;
+  if (state !== 'in') return <LoginPage onSuccess={() => setState('loading')} />;
+  if (profile?.role === 'technician') return <TechnicianView profile={profile} />;
   return <LeadsProvider><Dashboard /></LeadsProvider>;
 }
 

@@ -169,6 +169,24 @@ export async function sbSelect(path) {
   return r.json();
 }
 
+// Read the logged-in user's own profile row (role gate: owner vs technician).
+// RLS lets a user read their own row. Returns null if unauthed / no profile /
+// the profiles table doesn't exist yet (pre-migration) — callers treat null as
+// the default owner path so existing logins keep working before the DDL runs.
+export async function fetchCurrentProfile() {
+  try {
+    const rows = await sbSelect('profiles?select=id,role,display_name,active');
+    return (rows && rows[0]) || null;
+  } catch { return null; }
+}
+
+// Technician list for the owner's booking-assignment dropdown.
+export async function fetchTechnicians() {
+  try {
+    return (await sbSelect('profiles?role=eq.technician&active=eq.true&select=id,display_name')) || [];
+  } catch { return []; }
+}
+
 // ── generic CRUD (airtableSync delegates here) ───────────────────────────────
 export async function sbCreate(tableId, fields) {
   const reg = REG[tableId]; if (!reg) { console.error('sbCreate: unknown table', tableId); return null; }
