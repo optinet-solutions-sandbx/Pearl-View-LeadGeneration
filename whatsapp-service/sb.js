@@ -26,6 +26,7 @@ const BOOKING_COLS = {
   'Job_Service': 'job_service', 'Date': 'date', 'Booking Status': 'booking_status', 'Amount': 'amount',
   'Job Time': 'job_time', 'Assigned Worker': 'assigned_worker', 'Upsell Amount': 'upsell_amount', 'Upsell Notes': 'upsell_notes',
   'Lead Id': 'lead_id',
+  'Assigned Worker Id': 'assigned_worker_id', 'Tech Notes': 'tech_notes',
 };
 const toCols = (map, fields) => { const o = {}; for (const [k, v] of Object.entries(fields || {})) if (map[k]) o[map[k]] = v; return o; };
 const leadRowToFields = row => {
