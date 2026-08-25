@@ -1,6 +1,9 @@
 import { useState, useMemo } from 'react';
 import { useTechnicianBookings } from '../../hooks/useTechnicianBookings';
+import { useTechnicianLeads } from '../../hooks/useTechnicianLeads';
 import { signOut } from '../../utils/supabaseClient';
+
+const LEAD_GROUPS = ['Quote Sent', 'Booked', 'Job Done'];
 
 const DOW    = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -13,9 +16,11 @@ const TEAL = 'var(--primary, #0f766e)';
 // notes). Marking a job done flags it to the owner for invoicing (tech_completed_at).
 export default function TechnicianView({ profile }) {
   const { myBookings, loading, markCompleted, reopen, saveTechNote } = useTechnicianBookings();
+  const { leads: pipeline, loading: leadsLoading } = useTechnicianLeads();
   const today = new Date();
   const todayISO = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
 
+  const [tab, setTab] = useState('calendar'); // calendar | leads
   const [year,  setYear]  = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const [selDay, setSelDay] = useState(null);
@@ -143,6 +148,34 @@ export default function TechnicianView({ profile }) {
     );
   }
 
+  // Read-only lead card (pipeline view) — NO money, NO actions.
+  function LeadCard({ l }) {
+    return (
+      <div style={{ ...card, padding: 14, marginBottom: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'start' }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>{l.name}</div>
+          <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#eff6ff', color: '#1d4ed8', whiteSpace: 'nowrap' }}>{l.status}</span>
+        </div>
+        {(l.service || l.date) && <div style={{ color: '#475569', fontSize: 14, marginTop: 2 }}>{l.service}{l.date ? ` · ${l.date}` : ''}</div>}
+        {l.subject && <div style={{ fontSize: 13, color: '#475569', marginTop: 6, fontStyle: 'italic' }}>“{l.subject}”</div>}
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {(l.address || l.city) && (
+            <a href={mapHref(l.address || l.city)} target="_blank" rel="noreferrer" style={{ fontSize: 14, color: '#1d4ed8', textDecoration: 'none' }}>
+              📍 {l.address || l.city} <span style={{ fontSize: 11, color: '#64748b' }}>· Open in Maps</span>
+            </a>
+          )}
+          {l.phone && <a href={`tel:${l.phone}`} style={{ fontSize: 14, color: '#1d4ed8', textDecoration: 'none' }}>📞 {l.phone}</a>}
+          {(l.windows || l.stories || l.details) && (
+            <div style={{ fontSize: 12.5, color: '#64748b' }}>
+              {[l.windows ? `${l.windows} windows` : '', l.stories ? `${l.stories} stor${l.stories > 1 ? 'ies' : 'y'}` : '', l.details].filter(Boolean).join(' · ')}
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>View only</div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ flex: 1, height: '100dvh', overflowY: 'auto', display: 'flex', justifyContent: 'center', background: 'var(--bg, #f7f7f5)' }}>
       <div style={{ width: '100%', maxWidth: 620, padding: 16, boxSizing: 'border-box', fontFamily: "'Montserrat', system-ui, sans-serif", color: 'var(--gray-800, #222)' }}>
@@ -154,6 +187,17 @@ export default function TechnicianView({ profile }) {
           <button onClick={signOut} style={{ padding: '8px 12px', background: '#fff', border: '1px solid #ddd', borderRadius: 8, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>Sign out</button>
         </header>
 
+        {/* tab switcher */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          {[['calendar', 'My Calendar'], ['leads', 'Leads']].map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)} style={{
+              flex: 1, padding: '9px 0', borderRadius: 10, fontWeight: 700, fontFamily: 'inherit', fontSize: 13, cursor: 'pointer',
+              border: `1px solid ${tab === id ? TEAL : 'var(--gray-200,#e2e8f0)'}`, background: tab === id ? TEAL : '#fff', color: tab === id ? '#fff' : '#475569',
+            }}>{label}</button>
+          ))}
+        </div>
+
+        {tab === 'calendar' && (<>
         {/* summary tiles */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           <StatTile label="Today" value={stats.today} tone={TEAL} />
@@ -213,6 +257,25 @@ export default function TechnicianView({ profile }) {
           <p style={{ color: '#64748b' }}>{selDate ? 'No job on this day.' : 'Nothing here.'}</p>
         )}
         {listJobs.map(b => <JobCard key={b.id} b={b} />)}
+        </>)}
+
+        {tab === 'leads' && (
+          <div>
+            <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 12 }}>Pipeline reference — quoted, booked and completed jobs. View only.</div>
+            {leadsLoading && <p style={{ color: '#64748b' }}>Loading…</p>}
+            {!leadsLoading && pipeline.length === 0 && <p style={{ color: '#64748b' }}>No leads to show.</p>}
+            {LEAD_GROUPS.map(status => {
+              const rows = pipeline.filter(l => l.status === status);
+              if (!rows.length) return null;
+              return (
+                <section key={status} style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: TEAL, textTransform: 'uppercase', letterSpacing: '.03em', margin: '2px 0 10px' }}>{status} ({rows.length})</div>
+                  {rows.map(l => <LeadCard key={l.id} l={l} />)}
+                </section>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

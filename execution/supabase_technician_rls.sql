@@ -80,4 +80,19 @@ create policy bookings_owner    on bookings for all    using (is_owner()) with c
 create policy bookings_tech_sel on bookings for select using (assigned_worker_id = auth.uid());
 create policy bookings_tech_upd on bookings for update using (assigned_worker_id = auth.uid()) with check (assigned_worker_id = auth.uid());
 
+-- 7. Read-only lead visibility for technicians (Quote Sent / Booked / Job Done).
+--    A SECURITY DEFINER view (default, no security_invoker) so it bypasses RLS and
+--    exposes ONLY the safe columns below — NO money (quote/invoice), NO internal
+--    notes / call recording / refusal reason. Techs get NO RLS policy on the base
+--    leads table, so they can read leads ONLY through this column-limited view;
+--    a direct query on `leads` still returns nothing for them (money stays hidden).
+drop view if exists tech_leads;
+create view tech_leads as
+  select id, client_name, phone_number, email, lead_status, inquiry_subject, inquiry_date,
+         property_type, services, estimated_window_count, stories, property_details,
+         service_address, address, city, next_follow_up_date, scheduled_cleaning_date, lead_source
+  from leads
+  where lead_status in ('Quote Sent', 'Booked', 'Job Done');
+grant select on tech_leads to authenticated;
+
 commit;
