@@ -262,6 +262,8 @@ export function sbBookingRowToRecord(row) {
     'Booking Name': row.booking_name, 'Client Name': row.client_name, 'Phone': row.phone, 'City': row.city,
     'Job_Service': row.job_service, 'Date': row.date, 'Booking Status': row.booking_status, 'Amount': row.amount,
     'Job Time': row.job_time, 'Assigned Worker': row.assigned_worker, 'Upsell Amount': row.upsell_amount, 'Upsell Notes': row.upsell_notes,
+    'Lead Id': row.lead_id, 'Assigned Worker Id': row.assigned_worker_id, 'Tech Notes': row.tech_notes,
+    'Service Address': row.service_address, 'Tech Completed At': row.tech_completed_at,
   } };
 }
 export function sbClientRowToRecord(row) {

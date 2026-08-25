@@ -259,7 +259,7 @@ function AppointmentFormFields({ form, setField, leads = [], clients = [], techn
 }
 
 // ── Edit booking modal ────────────────────────────────────────────────────────
-function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, leads = [], clients = [], technicians = [] }) {
+function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, leads = [], clients = [], technicians = [], needsInvoicing = false }) {
   const [form, setForm] = useState({
     clientName:       booking.clientName       || '',
     phone:            booking.phone            || '',
@@ -294,8 +294,16 @@ function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, lead
         </div>
         <div style={{ padding: '16px 20px', overflowY: 'auto', flex: 1 }}>
 
-          {/* Completed status banner */}
-          {isDone && (
+          {/* Technician finished it — owner still needs to record payment + invoice */}
+          {needsInvoicing && (
+            <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px', padding: '10px 14px', marginBottom: '14px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#9a3412' }}>✓ Completed by technician</div>
+              <div style={{ fontSize: '12px', color: '#c2410c', marginTop: '2px' }}>Record payment &amp; send the invoice to close this job.</div>
+            </div>
+          )}
+
+          {/* Completed + already closed */}
+          {isDone && !needsInvoicing && (
             <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '10px 14px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '13px', fontWeight: 700, color: '#15803d' }}>✓ Job Completed</span>
               {booking.amount > 0 && <span style={{ fontSize: '12px', color: '#16a34a' }}>· ${booking.amount.toLocaleString()}</span>}
@@ -311,14 +319,14 @@ function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, lead
             Save Changes
           </button>
 
-          {/* Mark Done button */}
-          {!isDone && (
+          {/* Mark Done (owner) OR Record Payment + Invoice for a tech-completed job */}
+          {(!isDone || needsInvoicing) && (
             <button
               onClick={() => setShowComplete(true)}
               style={{ width: '100%', padding: '10px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
             >
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ width: '14px', height: '14px' }}><polyline points="20 6 9 17 4 12"/></svg>
-              Mark Job as Done
+              {needsInvoicing ? 'Record Payment + Send Invoice' : 'Mark Job as Done'}
             </button>
           )}
 
@@ -458,7 +466,24 @@ export default function CalendarPage() {
     .map(l => ({ ...l, parsedDate: new Date(l.jobDate), isCalBooking: false }))
     .filter(b => b.parsedDate.getFullYear() === year && b.parsedDate.getMonth() === month);
 
+  // "Needs invoicing" = a technician marked their job done (tech_completed_at set,
+  // booking Completed) but the owner hasn't closed it yet (matching lead not
+  // job_done). This is the owner-facing side of the tech "Mark Done" flow.
+  const leadDoneFor = (b) => {
+    const bn = b.name || b.clientName;
+    const l = leads.find(x =>
+      (b.linkedLeadId && x.id === b.linkedLeadId) ||
+      (dig(b.phone) && dig(x.phone) === dig(b.phone)) ||
+      (nmz(bn)      && nmz(x.name)  === nmz(bn)));
+    return l ? l.status === 'job_done' : false;
+  };
+  const needsInvoicing = (b) =>
+    !!b && b.bookingStatus === 'Completed' && !!b.techCompletedAt && !leadDoneFor(b);
+
   const allMonthBookings = [...monthLeadBookings, ...monthCalBookings];
+  // Global (all months) — a tech completion must alert the owner regardless of
+  // which month the calendar is currently showing.
+  const invoiceQueue = calBookings.filter(needsInvoicing);
 
   const byDay = {};
   allMonthBookings.forEach(b => {
@@ -527,7 +552,7 @@ export default function CalendarPage() {
 
   const completedCount = tableRows.filter(b => b.bookingStatus === 'Completed').length;
   const searchedRows = tableRows
-    .filter(b => !hideCompleted || b.bookingStatus !== 'Completed')
+    .filter(b => !hideCompleted || b.bookingStatus !== 'Completed' || needsInvoicing(b))
     .filter(b => {
       if (!tableSearch) return true;
       const q = tableSearch.toLowerCase();
@@ -543,6 +568,16 @@ export default function CalendarPage() {
         <div style={{ fontSize: '17px', fontWeight: 700, color: 'var(--gray-900)' }}>Calendar</div>
         <div style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '2px' }}>Advance bookings and scheduled jobs</div>
       </div>
+
+      {invoiceQueue.length > 0 && (
+        <div style={{ marginBottom: '16px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '12px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '18px' }}>🧾</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: '#9a3412' }}>{invoiceQueue.length} job{invoiceQueue.length > 1 ? 's' : ''} completed by a technician — needs invoicing</div>
+            <div style={{ fontSize: '11.5px', color: '#c2410c' }}>Open a booking marked <b>⚠ NEEDS INVOICE</b> to record payment and send the invoice.</div>
+          </div>
+        </div>
+      )}
 
       {/* ── Calendar card ── */}
       <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid var(--gray-200)', marginBottom: '16px' }}>
@@ -721,6 +756,11 @@ export default function CalendarPage() {
                         ) : (
                           <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: '#eff6ff', color: 'var(--primary)' }}>Lead</span>
                         )}
+                        {needsInvoicing(b) && (
+                          <div style={{ marginTop: '4px', fontSize: '9.5px', fontWeight: 800, padding: '2px 7px', borderRadius: '20px', background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', display: 'inline-block' }}>
+                            ⚠ NEEDS INVOICE
+                          </div>
+                        )}
                       </td>
                       <td className="cal-td-amount" style={{ ...td, textAlign: 'right' }}>
                         <div style={{ fontWeight: 700, color: b.bookingStatus === 'Completed' ? '#15803d' : 'var(--primary)' }}>
@@ -758,6 +798,7 @@ export default function CalendarPage() {
         <EditBookingModal
           booking={editBooking}
           leads={leads} clients={clients} technicians={technicians}
+          needsInvoicing={needsInvoicing(editBooking)}
           onSave={data => { updateCalBooking(editBooking.id, data); setEditBooking(null); }}
           onComplete={data => handleComplete(editBooking, data)}
           onCancel={() => { removeCalBooking(editBooking.id); setEditBooking(null); }}
