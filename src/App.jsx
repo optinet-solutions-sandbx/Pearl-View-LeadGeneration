@@ -107,8 +107,8 @@ function Dashboard() {
 
 // Login gate (only when Supabase is the backend). Tries a token refresh on load
 // so a returning owner stays signed in; otherwise shows the login screen. Once
-// signed in, loads the profile: a technician gets the scoped TechnicianView, the
-// owner (or any pre-profiles/legacy account) gets the full dashboard.
+// signed in, loads the profile: a technician gets the read-only (scoped)
+// dashboard, the owner (or any pre-profiles/legacy account) gets the full one.
 function AuthGate() {
   const [state, setState] = useState(hasSession() ? 'loading' : 'checking');
   const [profile, setProfile] = useState(null);
