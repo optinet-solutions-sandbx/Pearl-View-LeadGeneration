@@ -193,6 +193,7 @@ export function LeadsProvider({ children }) {
         clientName:     lead.name,
         phone:          lead.phone || '',
         city:           lead.city  || '',
+        address:        lead.address || '',
         service:        lead.jobType || 'Window Cleaning',
         date:           bookingData.date,
         jobTime:        bookingData.jobTime || '',

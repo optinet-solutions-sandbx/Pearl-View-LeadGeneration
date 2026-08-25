@@ -13,9 +13,15 @@ create table if not exists profiles (
 );
 alter table profiles enable row level security;
 
--- 2. booking scoping key + tech note column
+-- 2. booking scoping key + tech-facing detail columns
 alter table bookings add column if not exists assigned_worker_id uuid references profiles(id) on delete set null;
 alter table bookings add column if not exists tech_notes text;
+-- service_address: the job address the technician needs (leads table is RLS-blocked
+--   for techs, so it must live on the booking). owner-controlled (in the guard tuple).
+alter table bookings add column if not exists service_address text;
+-- tech_completed_at: set when a technician marks their job done → owner sees
+--   "done by tech, needs invoicing". NOT in the guard tuple (techs may set it).
+alter table bookings add column if not exists tech_completed_at timestamptz;
 
 -- 3. owner helper — SECURITY DEFINER so reading profiles inside the policy
 --    doesn't recurse through profiles' own RLS.
@@ -41,12 +47,12 @@ begin
   if auth.uid() is not null and not is_owner() then
     if (new.booking_name, new.client_name, new.phone, new.city, new.job_service,
         new.date, new.amount, new.job_time, new.assigned_worker, new.upsell_amount,
-        new.upsell_notes, new.lead_id, new.assigned_worker_id)
+        new.upsell_notes, new.lead_id, new.assigned_worker_id, new.service_address)
        is distinct from
        (old.booking_name, old.client_name, old.phone, old.city, old.job_service,
         old.date, old.amount, old.job_time, old.assigned_worker, old.upsell_amount,
-        old.upsell_notes, old.lead_id, old.assigned_worker_id) then
-      raise exception 'technicians may only update booking_status and tech_notes';
+        old.upsell_notes, old.lead_id, old.assigned_worker_id, old.service_address) then
+      raise exception 'technicians may only update booking_status, tech_notes and completion time';
     end if;
   end if;
   return new;

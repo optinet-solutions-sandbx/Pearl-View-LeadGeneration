@@ -156,6 +156,7 @@ function normaliseCalBooking(rec) {
     phone:          f['Phone']           || '',
     email:          '',
     city:           f['City']            || '',
+    address:        f['Service Address'] || '',
     service:        f['Job_Service']     || '',
     paymentMethod:  'Cash',
     date:           f['Date']            ? f['Date'].split('T')[0] : '',
@@ -164,6 +165,8 @@ function normaliseCalBooking(rec) {
     jobTime:        f['Job Time']        || '',
     assignedWorker: f['Assigned Worker'] || '',
     assignedWorkerId: f['Assigned Worker Id'] || null,
+    techNotes:      f['Tech Notes']      || '',
+    techCompletedAt: f['Tech Completed At'] || null,
     upsellAmount:   f['Upsell Amount']   || 0,
     upsellNotes:    f['Upsell Notes']    || '',
     linkedLeadId:   f['Lead Id'] || null,
@@ -975,6 +978,7 @@ export function useLeads() {
       date: data.date || '', bookingStatus: data.bookingStatus || 'Scheduled', amount: data.amount || 0,
       jobTime: data.jobTime || '', assignedWorker: data.assignedWorker || '',
       assignedWorkerId: data.assignedWorkerId || null,
+      address: data.address || '',
       upsellAmount: 0, upsellNotes: '',
       linkedLeadId: data.linkedLeadId || null,
       bookingSource: isFromLead ? 'Lead' : 'Manual',
@@ -995,6 +999,8 @@ export function useLeads() {
       'Amount':          record.amount || 0,
       'Job Time':        record.jobTime,
       'Assigned Worker': record.assignedWorker,
+      // Service address the technician needs (leads table is RLS-blocked for techs)
+      ...(record.address ? { 'Service Address': record.address } : {}),
       // Scopes the technician dashboard (RLS matches assigned_worker_id = auth.uid)
       ...(record.assignedWorkerId ? { 'Assigned Worker Id': record.assignedWorkerId } : {}),
       // Persist the stable link so bookings match their lead by id, not fuzzy
@@ -1099,6 +1105,7 @@ export function useLeads() {
         if (data.jobTime       !== undefined) patch['Job Time']       = data.jobTime;
         if (data.assignedWorker !== undefined) patch['Assigned Worker'] = data.assignedWorker;
         if (data.assignedWorkerId !== undefined) patch['Assigned Worker Id'] = data.assignedWorkerId;
+        if (data.address        !== undefined) patch['Service Address'] = data.address;
         if (data.upsellAmount  !== undefined) patch['Upsell Amount']  = data.upsellAmount;
         if (data.upsellNotes   !== undefined) patch['Upsell Notes']   = data.upsellNotes;
         if (Object.keys(patch).length) updateRecord(AT_TABLES.calendar, booking.airtableId, patch);

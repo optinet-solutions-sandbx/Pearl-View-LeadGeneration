@@ -112,6 +112,7 @@ const BOOKING_COLS = {
   'Job Time': 'job_time', 'Assigned Worker': 'assigned_worker', 'Upsell Amount': 'upsell_amount', 'Upsell Notes': 'upsell_notes',
   'Lead Id': 'lead_id',
   'Assigned Worker Id': 'assigned_worker_id', 'Tech Notes': 'tech_notes',
+  'Service Address': 'service_address', 'Tech Completed At': 'tech_completed_at',
 };
 const CLIENT_COLS = {
   'Client Name': 'client_name', 'Phone Number': 'phone_number', 'Phone': 'phone_number', 'Email': 'email',
