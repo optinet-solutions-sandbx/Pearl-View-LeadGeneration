@@ -24,10 +24,15 @@ import ReportsPage from './components/pages/ReportsPage';
 import ContactsPage from './components/pages/ContactsPage';
 import BroadcastPage from './components/pages/BroadcastPage';
 import BookingPage from './components/BookingPage';
-import TechnicianView from './components/pages/TechnicianView';
 
 function PageBody() {
-  const { currentPage } = useLeadsContext();
+  const { currentPage, readOnly } = useLeadsContext();
+
+  // Technician (read-only) may only reach Leads + Calendar; everything else
+  // falls back to the Leads pipeline.
+  if (readOnly) {
+    return currentPage === 'calendar' ? <CalendarPage /> : <LeadsPage />;
+  }
 
   switch (currentPage) {
     case 'overview':        return <OverviewPage />;
@@ -44,7 +49,7 @@ function PageBody() {
 }
 
 function Dashboard() {
-  const { isLoading, currentPage, setModalOpen } = useLeadsContext();
+  const { isLoading, currentPage, setModalOpen, readOnly } = useLeadsContext();
 
   // Hide bottom nav + FAB when mobile keyboard is open (input focused)
   useEffect(() => {
@@ -86,10 +91,10 @@ function Dashboard() {
       <QuoteSendModal />
       <InvoiceModal />
       <Toast />
-      <TutorialTour />
+      {!readOnly && <TutorialTour />}
       <MobileBottomNav />
-      {/* FAB — mobile-only, Leads page only */}
-      {currentPage === 'leads' && (
+      {/* FAB — mobile-only, Leads page only (never for read-only technicians) */}
+      {!readOnly && currentPage === 'leads' && (
         <button className="fab" onClick={() => setModalOpen(true)} aria-label="New Lead">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ width: '22px', height: '22px' }}>
             <path d="M12 5v14M5 12h14"/>
@@ -123,7 +128,7 @@ function AuthGate() {
 
   if (state === 'checking' || state === 'loading') return null;
   if (state !== 'in') return <LoginPage onSuccess={() => setState('loading')} />;
-  if (profile?.role === 'technician') return <TechnicianView profile={profile} />;
+  if (profile?.role === 'technician') return <LeadsProvider technician><Dashboard /></LeadsProvider>;
   return <LeadsProvider><Dashboard /></LeadsProvider>;
 }
 

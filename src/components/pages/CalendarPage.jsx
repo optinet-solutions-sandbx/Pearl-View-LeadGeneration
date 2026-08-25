@@ -259,7 +259,7 @@ function AppointmentFormFields({ form, setField, leads = [], clients = [], techn
 }
 
 // ── Edit booking modal ────────────────────────────────────────────────────────
-function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, leads = [], clients = [], technicians = [], needsInvoicing = false }) {
+function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, leads = [], clients = [], technicians = [], needsInvoicing = false, readOnly = false, onMarkDone, onSaveNote }) {
   const [form, setForm] = useState({
     clientName:       booking.clientName       || '',
     phone:            booking.phone            || '',
@@ -272,6 +272,8 @@ function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, lead
   });
   const [err,          setErr]          = useState('');
   const [showComplete, setShowComplete] = useState(false);
+  const [techNote,     setTechNote]     = useState(booking.techNotes || '');
+  const mapUrl = a => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(a)}`;
 
   function setField(k, v) { setForm(f => ({ ...f, [k]: v })); }
   function handleSave() {
@@ -287,12 +289,26 @@ function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, lead
       <div style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: '480px', maxHeight: '92dvh', display: 'flex', flexDirection: 'column', boxShadow: '0 -8px 40px rgba(0,0,0,0.18)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--gray-100)', flexShrink: 0 }}>
           <div>
-            <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--gray-900)' }}>Edit Appointment</div>
+            <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--gray-900)' }}>{readOnly ? 'Job Details' : 'Edit Appointment'}</div>
             <div style={{ fontSize: '12px', color: 'var(--gray-500)', marginTop: '2px' }}>{booking.date}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: 'var(--gray-400)', padding: '4px' }}>✕</button>
         </div>
         <div style={{ padding: '16px 20px', overflowY: 'auto', flex: 1 }}>
+
+          {readOnly ? (<>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{booking.clientName}</div>
+            <div style={{ color: '#475569', fontSize: 14, marginBottom: 8 }}>{booking.service}{booking.jobTime ? ` · ${booking.jobTime}` : ''}</div>
+            {(booking.address || booking.city) && <div style={{ fontSize: 14, marginBottom: 6 }}>📍 <a href={mapUrl(booking.address || booking.city)} target="_blank" rel="noreferrer" style={{ color: '#1d4ed8', textDecoration: 'none' }}>{booking.address || booking.city} · Open in Maps</a></div>}
+            {booking.phone && <div style={{ fontSize: 14, marginBottom: 6 }}>📞 <a href={`tel:${booking.phone}`} style={{ color: '#1d4ed8', textDecoration: 'none' }}>{booking.phone}</a></div>}
+            {booking.amount > 0 && <div style={{ fontSize: 14, marginBottom: 6 }}>💵 Quote: <b>${booking.amount.toLocaleString()}</b></div>}
+            {isDone
+              ? <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', margin: '12px 0', fontSize: 13, fontWeight: 700, color: '#15803d' }}>✓ Completed — sent to office for invoicing</div>
+              : <button onClick={() => { onMarkDone && onMarkDone(); onClose(); }} style={{ width: '100%', padding: 12, background: '#0f766e', color: '#fff', border: 0, borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', margin: '12px 0' }}>Mark Done</button>}
+            <label style={fLbl}>Note</label>
+            <textarea value={techNote} onChange={e => setTechNote(e.target.value)} rows={3} placeholder="Note for this job…" style={{ ...fInput, minHeight: 70, marginBottom: 8 }} />
+            <button onClick={() => { onSaveNote && onSaveNote(techNote); onClose(); }} style={{ width: '100%', padding: 10, background: '#fff', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Save Note</button>
+          </>) : (<>
 
           {/* Technician finished it — owner still needs to record payment + invoice */}
           {needsInvoicing && (
@@ -335,6 +351,7 @@ function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, lead
               Cancel Booking
             </button>
           )}
+          </>)}
         </div>
       </div>
 
@@ -419,7 +436,7 @@ export default function CalendarPage() {
     leads, calBookings, clients,
     saveJobDate, openPanel, setCurrentPage,
     addCalBooking, removeCalBooking, updateCalBooking, recordBookingPayment,
-    openInvoiceModal, showToast,
+    openInvoiceModal, showToast, readOnly,
   } = useLeadsContext();
 
   const today = new Date();
@@ -569,7 +586,7 @@ export default function CalendarPage() {
         <div style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '2px' }}>Advance bookings and scheduled jobs</div>
       </div>
 
-      {invoiceQueue.length > 0 && (
+      {!readOnly && invoiceQueue.length > 0 && (
         <div style={{ marginBottom: '16px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '12px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px' }}>
           <span style={{ fontSize: '18px' }}>🧾</span>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -613,7 +630,7 @@ export default function CalendarPage() {
               if (!hasBooked) { circleColor = 'var(--primary)'; fontWeight = 700; }
             }
             return (
-              <div key={day} onClick={() => { if (hasBooked) setSelectedDay(isSelected ? null : day); else setModalDay(day); }} className="cal-day-cell">
+              <div key={day} onClick={() => { if (hasBooked) setSelectedDay(isSelected ? null : day); else if (!readOnly) setModalDay(day); }} className="cal-day-cell">
                 <div className="cal-circle" style={{ background: circleBg, border: circleBorder }} title={`${MONTHS[month]} ${day}`}>
                   <span style={{ fontWeight, color: circleColor, lineHeight: 1 }}>{day}</span>
                   {hasBooked && !isSelected && <span className="cal-count-badge">{count}</span>}
@@ -798,10 +815,13 @@ export default function CalendarPage() {
         <EditBookingModal
           booking={editBooking}
           leads={leads} clients={clients} technicians={technicians}
-          needsInvoicing={needsInvoicing(editBooking)}
+          readOnly={readOnly}
+          needsInvoicing={!readOnly && needsInvoicing(editBooking)}
           onSave={data => { updateCalBooking(editBooking.id, data); setEditBooking(null); }}
           onComplete={data => handleComplete(editBooking, data)}
-          onCancel={() => { removeCalBooking(editBooking.id); setEditBooking(null); }}
+          onCancel={readOnly ? undefined : () => { removeCalBooking(editBooking.id); setEditBooking(null); }}
+          onMarkDone={() => updateCalBooking(editBooking.id, { bookingStatus: 'Completed', techCompletedAt: new Date().toISOString() })}
+          onSaveNote={note => updateCalBooking(editBooking.id, { techNotes: note })}
           onClose={() => setEditBooking(null)}
         />
       )}

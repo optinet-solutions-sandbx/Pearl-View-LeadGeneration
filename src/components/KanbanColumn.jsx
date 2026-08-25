@@ -3,7 +3,7 @@ import { useLeadsContext } from '../context/LeadsContext';
 import LeadCard from './LeadCard';
 
 export default function KanbanColumn({ col, leads, isSelected, onSelect }) {
-  const { changeStatus } = useLeadsContext();
+  const { changeStatus, readOnly } = useLeadsContext();
   const [dragOver, setDragOver] = useState(false);
   const [bgC, textC] = col.cnt.split('/');
 
@@ -21,7 +21,7 @@ export default function KanbanColumn({ col, leads, isSelected, onSelect }) {
     e.preventDefault();
     setDragOver(false);
     const id = e.dataTransfer.getData('text/plain');
-    if (id) changeStatus(id, col.id);
+    if (id && !readOnly) changeStatus(id, col.id);
   }
 
   return (

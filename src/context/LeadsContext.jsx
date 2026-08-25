@@ -3,8 +3,9 @@ import { useLeads } from '../hooks/useLeads';
 
 const LeadsContext = createContext(null);
 
-export function LeadsProvider({ children }) {
+export function LeadsProvider({ children, technician = false }) {
   const {
+    readOnly,
     leads, deletedLeads, calBookings, clients, isLoading, fetchLeads,
     changeStatus, toggleStar, saveNote, saveJobType,
     savePaidInfo, saveCity, saveJobDate, saveEmail, saveQuoteAmount, clearQuoteAmount,
@@ -13,7 +14,7 @@ export function LeadsProvider({ children }) {
     addCalBooking, removeCalBooking, updateCalBooking, recordBookingPayment,
     deletePayment, syncToClients, upsertClient, syncClientsFromLeads, updateClient,
     archivedClients, archiveClient, restoreClient, permanentDeleteClient,
-  } = useLeads();
+  } = useLeads(technician);
 
   const [activeId, setActiveId]       = useState(null);
   const [searchTerm, setSearchTerm]   = useState('');
@@ -383,6 +384,7 @@ export function LeadsProvider({ children }) {
 
   return (
     <LeadsContext.Provider value={{
+      readOnly,
       leads,
       deletedLeads,
       calBookings,

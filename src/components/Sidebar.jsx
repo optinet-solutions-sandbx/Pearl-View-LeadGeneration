@@ -15,13 +15,31 @@ export const PAGE_TITLES = {
 
 // ── Mobile bottom navigation bar ─────────────────────────────────────────────
 export function MobileBottomNav() {
-  const { leads, currentPage, setCurrentPage, setSearchTerm, closePanel, sidebarOpen, toggleSidebar } = useLeadsContext();
+  const { leads, currentPage, setCurrentPage, setSearchTerm, closePanel, sidebarOpen, toggleSidebar, readOnly } = useLeadsContext();
 
   function navigate(page) {
-    const dest = currentPage === 'leads' && page === 'leads' ? 'overview' : page;
+    // Technicians can't reach Overview — clicking Leads stays on Leads.
+    const dest = !readOnly && currentPage === 'leads' && page === 'leads' ? 'overview' : page;
     setCurrentPage(dest);
     setSearchTerm('');
     closePanel();
+  }
+
+  // Read-only technicians: only Leads + Calendar, no "More".
+  if (readOnly) {
+    const techTabs = [
+      { page: 'leads', label: 'Leads' },
+      { page: 'calendar', label: 'Calendar' },
+    ];
+    return (
+      <nav className="mobile-bottom-nav">
+        {techTabs.map(t => (
+          <button key={t.page} onClick={() => navigate(t.page)} className={`mobile-nav-tab${currentPage === t.page ? ' active' : ''}`}>
+            <span className="mobile-nav-label">{t.label}</span>
+          </button>
+        ))}
+      </nav>
+    );
   }
 
   const tabs = [
@@ -83,10 +101,10 @@ export function MobileBottomNav() {
 }
 
 export default function Sidebar() {
-  const { leads, deletedLeads, currentPage, setCurrentPage, setSearchTerm, closePanel, sidebarOpen, closeSidebar } = useLeadsContext();
+  const { leads, deletedLeads, currentPage, setCurrentPage, setSearchTerm, closePanel, sidebarOpen, closeSidebar, readOnly } = useLeadsContext();
 
   function navigate(page) {
-    const dest = currentPage === 'leads' && page === 'leads' ? 'overview' : page;
+    const dest = !readOnly && currentPage === 'leads' && page === 'leads' ? 'overview' : page;
     setCurrentPage(dest);
     setSearchTerm('');
     closePanel();
@@ -129,7 +147,7 @@ export default function Sidebar() {
         </div>
         <nav className="nav" data-tour="sidebar">
           <div className="nav-lbl">Main</div>
-          {navItem('overview', 'Overview',
+          {!readOnly && navItem('overview', 'Overview',
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <rect x="3" y="3" width="7" height="7" rx="1"/>
               <rect x="14" y="3" width="7" height="7" rx="1"/>
@@ -142,14 +160,14 @@ export default function Sidebar() {
               <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
             </svg>
           )}
-          {navItem('clients', 'Clients',
+          {!readOnly && navItem('clients', 'Clients',
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
               <circle cx="9" cy="7" r="4"/>
               <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
             </svg>
           )}
-          {navItem('deleted-history', 'Deleted History',
+          {!readOnly && navItem('deleted-history', 'Deleted History',
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
             </svg>
@@ -160,25 +178,25 @@ export default function Sidebar() {
               <path d="M16 2v4M8 2v4M3 10h18"/>
             </svg>
           )}
-          {navItem('expenses', 'Expenses',
+          {!readOnly && navItem('expenses', 'Expenses',
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <line x1="12" y1="1" x2="12" y2="23"/>
               <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
             </svg>
           )}
-          {navItem('reports', 'Reports',
+          {!readOnly && navItem('reports', 'Reports',
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
             </svg>
           )}
-          {navItem('contacts', 'Contacts',
+          {!readOnly && navItem('contacts', 'Contacts',
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path d="M20 21v-2a4 4 0 00-3-3.87M4 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/>
               <circle cx="10" cy="7" r="4"/>
               <path d="M16 3.13a4 4 0 010 7.75"/>
             </svg>
           )}
-          {navItem('broadcast', 'Broadcast SMS',
+          {!readOnly && navItem('broadcast', 'Broadcast SMS',
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path d="M3 5h12a4 4 0 014 4v0a4 4 0 01-4 4H9l-6 4V5z"/>
               <line x1="7" y1="9" x2="13" y2="9"/>

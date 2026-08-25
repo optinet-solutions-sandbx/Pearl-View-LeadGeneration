@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useLeadsContext } from '../context/LeadsContext';
 import { PAGE_TITLES } from './Sidebar';
 import { isToday, formatCallTime } from '../utils/dateUtils';
+import { signOut } from '../utils/supabaseClient';
 
 const SEEN_KEY      = 'pvl_seen_ids';
 const SEEN_DATE_KEY = 'pvl_seen_date';
@@ -35,7 +36,7 @@ export default function TopBar() {
   const {
     currentPage, searchTerm, setSearchTerm,
     setModalOpen, toggleSidebar, refetch,
-    leads, openPanel, setCurrentPage, startTutorial,
+    leads, openPanel, setCurrentPage, startTutorial, readOnly,
   } = useLeadsContext();
 
   // Persists within the same calendar day; resets automatically each new day
@@ -137,8 +138,8 @@ export default function TopBar() {
             <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
           </svg>
         </button>
-        {/* Help / tutorial */}
-        <button
+        {/* Help / tutorial (owner only — the tour targets owner nav items) */}
+        {!readOnly && <button
           className="notif-btn"
           data-tour="help"
           title="App tutorial"
@@ -150,14 +151,16 @@ export default function TopBar() {
             <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/>
             <line x1="12" y1="17" x2="12.01" y2="17"/>
           </svg>
-        </button>
+        </button>}
 
-        <button className="btn-new" data-tour="new-lead" onClick={() => setModalOpen(true)}>
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ width: '14px', height: '14px' }}>
-            <path d="M12 5v14M5 12h14"/>
-          </svg>
-          <span className="btn-new-label">New Lead</span>
-        </button>
+        {!readOnly && (
+          <button className="btn-new" data-tour="new-lead" onClick={() => setModalOpen(true)}>
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ width: '14px', height: '14px' }}>
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            <span className="btn-new-label">New Lead</span>
+          </button>
+        )}
 
         {/* Notification bell */}
         <div className="notif-wrap" data-tour="notifications" ref={notifsRef}>
@@ -249,10 +252,16 @@ export default function TopBar() {
           )}
         </div>
 
-        <div className="user-chip">
-          <div className="avatar">AC</div>
-          <span className="user-name">Asaf C.</span>
-        </div>
+        {readOnly ? (
+          <button className="btn-new" onClick={signOut} style={{ background: '#fff', color: 'var(--gray-700)', border: '1px solid var(--gray-200)' }}>
+            <span className="btn-new-label">Sign out</span>
+          </button>
+        ) : (
+          <div className="user-chip">
+            <div className="avatar">AC</div>
+            <span className="user-name">Asaf C.</span>
+          </div>
+        )}
       </div>
     </header>
   );

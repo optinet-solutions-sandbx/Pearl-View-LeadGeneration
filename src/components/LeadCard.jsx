@@ -29,7 +29,7 @@ const PREV_STATUS = { in_progress: 'new', quote_sent: 'in_progress', booked: 'qu
 export default function LeadCard({ lead }) {
   const {
     activeId, openPanel, toggleStar, changeStatus,
-    renameLead, showToast,
+    renameLead, showToast, readOnly,
   } = useLeadsContext();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -58,8 +58,9 @@ export default function LeadCard({ lead }) {
   // Overdue follow-up
   const isOverdue = lead.followUp && new Date(lead.followUp) < new Date();
 
-  const canMoveForward = !!NEXT_STATUS[lead.status];
-  const canMoveBack    = !!PREV_STATUS[lead.status];
+  // Technicians (read-only) can't move leads — disables swipe entirely.
+  const canMoveForward = !readOnly && !!NEXT_STATUS[lead.status];
+  const canMoveBack    = !readOnly && !!PREV_STATUS[lead.status];
 
   // ── Swipe handlers ──────────────────────────────────────────────────────────
   function onTouchStart(e) {
@@ -208,7 +209,7 @@ export default function LeadCard({ lead }) {
       <div
         className={`card${isActive ? ' active' : ''}`}
         data-tour="lead-card"
-        draggable
+        draggable={!readOnly}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onClick={handleCardClick}
@@ -233,13 +234,15 @@ export default function LeadCard({ lead }) {
               onClick={e => e.stopPropagation()}
             />
           ) : (
-            <span className="card-name" onDoubleClick={handleDblClick} title="Double-click to rename">
+            <span className="card-name" onDoubleClick={readOnly ? undefined : handleDblClick} title={readOnly ? undefined : 'Double-click to rename'}>
               {lead.name}
             </span>
           )}
-          <button className={`star${lead.starred ? ' on' : ''}`} onClick={handleStarClick}>
-            {lead.starred ? '★' : '☆'}
-          </button>
+          {!readOnly && (
+            <button className={`star${lead.starred ? ' on' : ''}`} onClick={handleStarClick}>
+              {lead.starred ? '★' : '☆'}
+            </button>
+          )}
         </div>
 
         {/* Source + status tags */}
@@ -297,7 +300,7 @@ export default function LeadCard({ lead }) {
           </a>
         )}
 
-        {lead.status === 'job_done' && !lead.paid && (
+        {!readOnly && lead.status === 'job_done' && !lead.paid && (
           <div style={{ marginTop: '8px', padding: '5px 10px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '6px', fontSize: '11px', fontWeight: 700, color: '#c2410c', display: 'flex', alignItems: 'center', gap: '5px' }}>
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ width: '12px', height: '12px', flexShrink: 0 }}>
               <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>

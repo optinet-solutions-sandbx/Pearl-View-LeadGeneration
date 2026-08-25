@@ -221,7 +221,7 @@ function normaliseClient(rec) {
   };
 }
 
-export function useLeads() {
+export function useLeads(technician = false) {
   const [leads,        setLeads]        = useState([]);
   const [deletedLeads, setDeletedLeads] = useState([]);
   const [calBookings,  setCalBookings]  = useState([]);
@@ -285,10 +285,13 @@ export function useLeads() {
       // clients in parallel. Reuses the existing normalisers via the snake_case→
       // Airtable-shape mappers. Writes still go to Airtable in this phase.
       if (USE_SUPABASE) {
+        // Technician: RLS blocks leads_enriched/clients/revenue. Read the
+        // column-limited `tech_leads` view (Quote Sent/Booked/Job Done, NO money)
+        // as leads; bookings are RLS-scoped to their own jobs; no clients.
         const [leadRows, bookingRows, clientRows] = await Promise.all([
-          sbSelect('leads_enriched?select=*'),
+          sbSelect(technician ? 'tech_leads?select=*' : 'leads_enriched?select=*'),
           sbSelect('bookings?select=*'),
-          sbSelect('clients?select=*'),
+          technician ? Promise.resolve([]) : sbSelect('clients?select=*'),
         ]);
         const all = leadRows.map(row => {
           const lead = normaliseRecord(sbLeadRowToRecord(row));
@@ -1106,6 +1109,8 @@ export function useLeads() {
         if (data.assignedWorker !== undefined) patch['Assigned Worker'] = data.assignedWorker;
         if (data.assignedWorkerId !== undefined) patch['Assigned Worker Id'] = data.assignedWorkerId;
         if (data.address        !== undefined) patch['Service Address'] = data.address;
+        if (data.techNotes      !== undefined) patch['Tech Notes'] = data.techNotes;
+        if (data.techCompletedAt !== undefined) patch['Tech Completed At'] = data.techCompletedAt;
         if (data.upsellAmount  !== undefined) patch['Upsell Amount']  = data.upsellAmount;
         if (data.upsellNotes   !== undefined) patch['Upsell Notes']   = data.upsellNotes;
         if (Object.keys(patch).length) updateRecord(AT_TABLES.calendar, booking.airtableId, patch);
@@ -1249,6 +1254,7 @@ export function useLeads() {
   }, []);
 
   return {
+    readOnly: technician,
     leads, deletedLeads, calBookings, clients, isLoading, fetchLeads,
     changeStatus, toggleStar, saveNote, saveJobType,
     savePaidInfo, saveCity, saveJobDate, saveEmail, saveQuoteAmount, clearQuoteAmount,

@@ -186,7 +186,7 @@ export default function DetailPanel() {
     activeLead: l, closePanel, changeStatus,
     saveNote, saveJobType, savePaidInfo, deletePayment, saveCity, saveJobDate, saveEmail,
     sendQuoteAndChangeStatus,
-    archiveLead, showToast, renameLead, setRefuseReason,
+    archiveLead, showToast, renameLead, setRefuseReason, readOnly,
   } = useLeadsContext();
 
   const [noteText,     setNoteText]     = useState('');
@@ -336,7 +336,7 @@ export default function DetailPanel() {
             ) : (
               <h2>{l.name}</h2>
             )}
-            <button
+            {!readOnly && <button
               onClick={startEditName}
               title="Edit name"
               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '3px', color: 'var(--gray-400)', lineHeight: 0, flexShrink: 0 }}
@@ -345,7 +345,7 @@ export default function DetailPanel() {
                 <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
                 <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
               </svg>
-            </button>
+            </button>}
           </div>
           <div className="panel-meta">
             {metaSource} · {formatDate(l.date)}
@@ -358,7 +358,11 @@ export default function DetailPanel() {
         {/* Status */}
         <div className="psec">
           <div className="psec-title">Status</div>
-          {l.status === 'job_done' && l.paid && l.paidAmount > 0 ? (
+          {readOnly ? (
+            <div style={{ padding: '8px 12px', background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: '8px', fontSize: '13px', fontWeight: 700, color: '#1d4ed8' }}>
+              {({ new: '🔵 New Lead', in_progress: '🟡 In Progress', quote_sent: '🟣 Quote Sent', booked: '📅 Booked', job_done: '✅ Job Done', refused: '🚫 Refused' })[l.status] || l.status}
+            </div>
+          ) : l.status === 'job_done' && l.paid && l.paidAmount > 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div style={{ flex: 1, padding: '8px 12px', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: '8px', fontSize: '13px', fontWeight: 700, color: '#15803d' }}>
                 ✅ Job Done
@@ -418,7 +422,7 @@ export default function DetailPanel() {
             }
           </div>
           {/* Email — tap to edit */}
-          <div className="prow" style={{ cursor: 'pointer' }} onClick={editingEmail ? undefined : startEditEmail}>
+          <div className="prow" style={{ cursor: readOnly ? 'default' : 'pointer' }} onClick={readOnly || editingEmail ? undefined : startEditEmail}>
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
               <polyline points="22,6 12,13 2,6"/>
@@ -435,12 +439,12 @@ export default function DetailPanel() {
               />
             ) : (
               <span className="prow-text" style={{ color: l.email ? 'var(--gray-800)' : 'var(--gray-400)' }}>
-                {l.email ? <a href={`mailto:${l.email}`} onClick={e => e.stopPropagation()}>{l.email}</a> : 'Add email…'}
+                {l.email ? <a href={`mailto:${l.email}`} onClick={e => e.stopPropagation()}>{l.email}</a> : (readOnly ? '—' : 'Add email…')}
               </span>
             )}
           </div>
           {/* City — building icon, tap to edit */}
-          <div className="prow" style={{ cursor: 'pointer' }} onClick={editingCity ? undefined : startEditCity}>
+          <div className="prow" style={{ cursor: readOnly ? 'default' : 'pointer' }} onClick={readOnly || editingCity ? undefined : startEditCity}>
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16M3 21h18M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
             </svg>
@@ -456,7 +460,7 @@ export default function DetailPanel() {
               />
             ) : (
               <span className="prow-text" style={{ color: l.city ? 'var(--gray-800)' : 'var(--gray-400)' }}>
-                {l.city || 'Add city…'}
+                {l.city || (readOnly ? '—' : 'Add city…')}
               </span>
             )}
           </div>
@@ -474,7 +478,7 @@ export default function DetailPanel() {
                   <button
                     key={svc}
                     type="button"
-                    onClick={() => {
+                    onClick={readOnly ? undefined : () => {
                       const cur = l.jobTypes || [];
                       const next = selected ? cur.filter(s => s !== svc) : [...cur, svc];
                       saveJobType(l.id, next);
@@ -482,7 +486,7 @@ export default function DetailPanel() {
                     style={{
                       display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
                       width: '100%', boxSizing: 'border-box', fontSize: '11.5px', lineHeight: 1, padding: '10px 6px',
-                      borderRadius: '8px', whiteSpace: 'nowrap', cursor: 'pointer', fontFamily: 'inherit', transition: 'all .12s',
+                      borderRadius: '8px', whiteSpace: 'nowrap', cursor: readOnly ? 'default' : 'pointer', fontFamily: 'inherit', transition: 'all .12s',
                       border: selected ? '1px solid var(--primary)' : '1px solid var(--gray-200)',
                       background: selected ? 'var(--primary)' : '#fff',
                       color: selected ? '#fff' : 'var(--gray-600)',
@@ -502,8 +506,9 @@ export default function DetailPanel() {
             </div>
           </div>
           {l.jobDate && <div className="jrow"><span className="jlbl">Job Date</span><span className="jval">{l.jobDate}</span></div>}
-          {/* Est. Value: show for quote_sent; for job_done show payment if recorded, else estimate */}
-          {l.status === 'job_done' && l.paid && l.paidAmount > 0 ? (
+          {/* Est. Value: show for quote_sent; for job_done show payment if recorded, else estimate.
+              Hidden entirely for read-only technicians (no money). */}
+          {!readOnly && (l.status === 'job_done' && l.paid && l.paidAmount > 0 ? (
             <div className="jrow">
               <span className="jlbl">Amount Paid</span>
               <span className="jval" style={{ color: '#16a34a' }}>{'$' + l.paidAmount.toLocaleString()}</span>
@@ -513,11 +518,12 @@ export default function DetailPanel() {
               <span className="jlbl">Est. Value</span>
               <span className="jval" style={{ color: 'var(--primary)' }}>{'$' + l.value.toLocaleString()}</span>
             </div>
-          ) : null}
+          ) : null)}
           <div className="jrow"><span className="jlbl">Lead Source</span>{srcTag}</div>
         </div>
 
-        {/* Payment */}
+        {/* Payment (owner only — money is hidden for read-only technicians) */}
+        {!readOnly && (
         <div className="psec">
           <div className="psec-title">Payment</div>
           {l.paid ? (
@@ -584,6 +590,7 @@ export default function DetailPanel() {
             </button>
           )}
         </div>
+        )}
 
         {/* Call History */}
         <div className="psec">
@@ -605,7 +612,8 @@ export default function DetailPanel() {
           )}
         </div>
 
-        {/* Notes */}
+        {/* Notes + Actions — owner only (read-only technicians can't edit leads) */}
+        {!readOnly && (<>
         <div className="psec">
           <div className="psec-title">Notes</div>
           <textarea
@@ -669,6 +677,7 @@ export default function DetailPanel() {
             </button>
           </div>
         </div>
+        </>)}
       </div>
 
       {payModalOpen && (

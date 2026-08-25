@@ -6,7 +6,7 @@ import KanbanBoard from '../KanbanBoard';
 const PTR_THRESHOLD = 65;
 
 export default function LeadsPage() {
-  const { refetch } = useLeadsContext();
+  const { refetch, readOnly } = useLeadsContext();
   const [pullY,      setPullY]      = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const touchRef = useRef({ startY: 0, active: false });
@@ -62,7 +62,7 @@ export default function LeadsPage() {
         </div>
       )}
       <KanbanBoard />
-      <StatsRow />
+      {!readOnly && <StatsRow />}
     </div>
   );
 }
