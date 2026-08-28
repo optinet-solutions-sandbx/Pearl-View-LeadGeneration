@@ -477,6 +477,43 @@ export function useLeads(technician = false) {
         }
         return prev.map(b => b.id === linked.id ? { ...b, bookingStatus: 'Completed' } : b);
       });
+
+      // A lead only appears on the calendar while it is Booked; once Job Done it
+      // relies on a booking row. If NO booking exists for this finished job (by
+      // link / phone+date / name+date), create a Completed one so the job never
+      // disappears from the calendar (covers direct New→Job Done, and recurring
+      // same-name clients whose other bookings are on different dates).
+      const jday = (currentLead.jobDate || new Date().toISOString()).slice(0, 10);
+      const digp = s => (s || '').replace(/\D/g, '');
+      const nmzn = s => (s || '').trim().toLowerCase();
+      const bookingExists = calBookings.some(b => {
+        const bday = (b.date || '').slice(0, 10);
+        return (b.linkedLeadId && b.linkedLeadId === id)
+          || (digp(currentLead.phone) && digp(b.phone) === digp(currentLead.phone) && bday === jday)
+          || (nmzn(currentLead.name)  && nmzn(b.clientName) === nmzn(currentLead.name)  && bday === jday);
+      });
+      if (!bookingExists) {
+        const fields = {
+          'Booking Name': `LEAD::${currentLead.name} - ${jday}`,
+          'Client Name': currentLead.name, 'Date': jday,
+          'Job_Service': currentLead.jobType || 'Window Cleaning',
+          'City': currentLead.city || '', 'Phone': currentLead.phone || '',
+          'Booking Status': 'Completed', 'Amount': currentLead.value || 0, 'Lead Id': id,
+          ...(currentLead.address ? { 'Service Address': currentLead.address } : {}),
+        };
+        const newAtId = await createRecord(AT_TABLES.calendar, fields);
+        if (newAtId) {
+          setCalBookings(prev => [{
+            id: `cal-${newAtId}`, airtableId: newAtId,
+            clientName: currentLead.name, phone: currentLead.phone || '', email: '',
+            city: currentLead.city || '', address: currentLead.address || '',
+            service: currentLead.jobType || 'Window Cleaning', paymentMethod: 'Cash',
+            date: jday, bookingStatus: 'Completed', amount: currentLead.value || 0,
+            jobTime: '', assignedWorker: '', assignedWorkerId: null,
+            upsellAmount: 0, upsellNotes: '', linkedLeadId: id, bookingSource: 'Lead',
+          }, ...prev]);
+        }
+      }
     }
     // When a lead LEAVES Booked (→ any non-booked, non-done status), cancel its
     // linked active booking so it drops off the calendar — mirror of the
@@ -500,7 +537,7 @@ export function useLeads(technician = false) {
       });
     }
     return 'ok';
-  }, [patchAirtable, leads]);
+  }, [patchAirtable, leads, calBookings]);
 
   const toggleStar = useCallback((id) => {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, starred: !l.starred } : l));
