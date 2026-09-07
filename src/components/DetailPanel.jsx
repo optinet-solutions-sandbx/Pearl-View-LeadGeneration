@@ -513,6 +513,11 @@ export default function DetailPanel() {
               <span className="jlbl">Amount Paid</span>
               <span className="jval" style={{ color: '#16a34a' }}>{'$' + l.paidAmount.toLocaleString()}</span>
             </div>
+          ) : l.status === 'job_done' && l.invoice > 0 ? (
+            <div className="jrow">
+              <span className="jlbl">Invoiced</span>
+              <span className="jval" style={{ color: 'var(--primary)' }}>{'$' + l.invoice.toLocaleString()}</span>
+            </div>
           ) : (l.status === 'quote_sent' || l.status === 'job_done') && l.value > 0 ? (
             <div className="jrow">
               <span className="jlbl">Est. Value</span>

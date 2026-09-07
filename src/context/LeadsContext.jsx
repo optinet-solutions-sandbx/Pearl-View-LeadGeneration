@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useLeads } from '../hooks/useLeads';
+import { updateRecord, AT_TABLES } from '../utils/airtableSync';
 
 const LeadsContext = createContext(null);
 
@@ -62,8 +63,13 @@ export function LeadsProvider({ children, technician = false }) {
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.error || `Send failed (${r.status})`);
-    // On a real send, re-read leads so the UI reflects Invoice Sent/Number
+    // On a real send, persist the invoiced total onto the lead (Final Invoice
+    // Amount) so the card + reports reflect what was actually invoiced — not the
+    // stale original quote — then re-read leads to reflect Invoice Sent/Number.
     if (!payload.test && data.invoiceNumber) {
+      if (payload.leadId && payload.amount > 0) {
+        try { await updateRecord(AT_TABLES.leads, payload.leadId, { 'Final Invoice Amount': payload.amount }); } catch { /* best effort */ }
+      }
       fetchLeads({ silent: true }).catch(() => {});
     }
     return data;
