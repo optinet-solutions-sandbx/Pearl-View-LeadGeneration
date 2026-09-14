@@ -585,10 +585,22 @@ export function useLeads(technician = false) {
     }));
     const updatedLead = leadSnapshot ? { ...leadSnapshot, paid, paidAmount, paymentMethod } : null;
     const wasJobDone = leadSnapshot?.status === 'job_done';
-    // Write Revenue with appropriate status — 'Job Done' only when job is already done
-    if (paid && paidAmount > 0 && !leadSnapshot?.paid) {
+    // Write Revenue with appropriate status — 'Job Done' only when job is already done.
+    if (paid && paidAmount > 0) {
       const revStatus = wasJobDone ? 'Job Done' : 'In Progress';
-      await writeRevenue(updatedLead, paidAmount, paymentMethod, revStatus);
+      if (leadSnapshot?.paid && leadSnapshot?.revenueRecordId) {
+        // Already paid → EDIT the existing Revenue record so a changed amount
+        // actually persists. (Previously this branch was skipped entirely, so an
+        // edit was optimistic-only and the next fetch reverted it to the old value.)
+        await updateRecord(AT_TABLES.revenue, leadSnapshot.revenueRecordId, {
+          'Amount': paidAmount,
+          'Payment_Method': paymentMethod || 'Cash',
+          'Status': revStatus,
+        });
+      } else if (!leadSnapshot?.paid) {
+        // Newly paid → create the Revenue record.
+        await writeRevenue(updatedLead, paidAmount, paymentMethod, revStatus);
+      }
     }
     // Sync the linked calendar booking's amount to the payment so the calendar
     // and the Job Done column never disagree. Match by linked id, then phone,
