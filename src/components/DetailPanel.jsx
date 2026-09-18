@@ -185,7 +185,7 @@ export default function DetailPanel() {
   const {
     activeLead: l, closePanel, changeStatus,
     saveNote, saveJobType, savePaidInfo, deletePayment, saveCity, saveJobDate, saveEmail,
-    sendQuoteAndChangeStatus,
+    sendQuoteAndChangeStatus, openInvoiceModal,
     archiveLead, showToast, renameLead, setRefuseReason, readOnly,
   } = useLeadsContext();
 
@@ -669,6 +669,20 @@ export default function DetailPanel() {
                   <line x1="3" y1="10" x2="21" y2="10"/>
                 </svg>
                 Book
+              </button>
+            )}
+            {/* Send / Resend Invoice — for a completed job. Opens the invoice
+                review modal (pick recipient + line items, then send). */}
+            {l.status === 'job_done' && (
+              <button
+                className="action-btn"
+                style={{ background: '#0d9488', borderColor: '#0d9488', color: '#fff', minHeight: '44px' }}
+                onClick={() => openInvoiceModal(l.id)}
+              >
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" style={{ width: '15px', height: '15px' }}>
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+                </svg>
+                {l.invoiceSent ? 'Resend Invoice' : 'Send Invoice'}
               </button>
             )}
             {/* Row 3: Archive (full width, subtle) */}
