@@ -13,7 +13,7 @@ When a lead sits in **Quote Sent** with no response, automatically email the cus
 |---|---|
 | Channel | **Email only**, via the existing Gmail API sender. Leads with no email are flagged "No email — call them", never sent. |
 | Send mode | **Fully automatic** once enabled. Per-lead Stop/Start. |
-| After FU3 | Lead auto-moves to **Refused**, reason `No response to follow-ups`. |
+| After FU3 | Lead auto-moves to **Refused**, reason code `no_response` (label "No Response to Follow-ups" — added to `REFUSE_LABELS` + refusal stats). |
 | Stop rules | (1) status leaves Quote Sent, (2) customer replies by email, (3) manual Stop button. |
 | Existing Quote Sent leads | **Not** auto-enrolled. Only leads entering Quote Sent while the feature is on. Older ones get a per-lead **Start** button. |
 | Testing | **Test-mode redirect** (Settings switch) + manual dummy leads named `TEST …`. |
@@ -51,6 +51,7 @@ Index: `(followup_status, followup_next_at)`.
 | `test_mode` boolean | `true` |
 | `test_email` text | `null` |
 | `sender_name` text | `Pearlview Window Cleaning` |
+| `company_name` text | `Pearlview Window Cleaning` (fills `{company}`; stored here so the Settings preview matches the sent email exactly) |
 | `window_start_hour` int | `8` (business TZ) |
 | `window_end_hour` int | `18` |
 | `steps` jsonb | 3 objects `{enabled, delay_hours, subject, body}` seeded with the default scripts below; delays **48 / 72 / 120 h** |
@@ -71,7 +72,9 @@ Runs regardless of which code path changes the lead (Kanban drag, detail panel, 
      - email blank → `followup_status='no_email'`
    - if not enabled → reset `followup_status=null`, `followup_step=0` (clears leftovers from an earlier Quote Sent cycle; the owner can still Start manually)
 2. **Leaving Quote Sent** while `followup_status='active'` → `followup_status='stopped'`, `followup_stop_reason='status_changed'` — *unless the same statement already sets `followup_status`* (the engine's FU3 update sets `completed` + `Refused` together; the trigger must not overwrite it — check `NEW.followup_status IS DISTINCT FROM OLD.followup_status`).
-3. **Email added later**: status Quote Sent, `followup_status='no_email'`, new email non-blank → `active`, step 0, `next_at = now() + steps[0].delay_hours`.
+3. **Email added later**: status Quote Sent, `followup_status='no_email'`, new email non-blank → `active`, **keeps its current step**, `next_at = now() + steps[0].delay_hours`.
+
+The step-1 delay is read with a safe cast (bad value → 48 h) so a malformed setting can never block a lead save.
 
 Then: drop + recreate `leads_enriched` (from its latest definition, incl. `security_invoker` and the `lead_id` fix in `supabase_fix_leads_enriched_lead_id.sql`) so it exposes the new columns.
 
@@ -83,9 +86,9 @@ Then: drop + recreate `leads_enriched` (from its latest definition, incl. `secur
   - `inSendWindow(now, tz, startHour, endHour)`.
   - `nextEnabledStep(steps, fromStep)` — skips disabled steps.
   - `planAction(lead, settings, now)` → one of `hold` (test mode + non-TEST lead), `send {step, to, subject, body}`, `complete` (no enabled steps remain). Test mode: only leads whose `client_name` starts with `TEST` (case-insensitive) are processed; recipient = `test_email`; subject prefixed `[TEST → <real email>] `.
-  - `afterSend(lead, settings, sentStep, now)` → field patch: increments step; if more enabled steps → `next_at = now + that step's delay_hours`; if this was the **last step and it is step 3** → `lead_status='Refused'`, `refusal_reason='No response to follow-ups'`, `followup_status='completed'`; if last enabled step is not step 3 → `followup_status='completed'`, status unchanged.
+  - `afterSend(lead, settings, sentStep, now)` → field patch: increments step; if more enabled steps → `next_at = now + that step's delay_hours`; if this was the **last step and it is step 3** → `lead_status='Refused'`, `refusal_reason='no_response'`, `followup_status='completed'`; if last enabled step is not step 3 → `followup_status='completed'`, status unchanged.
 - **`followup.js`** — orchestration: DB reads/writes (via `sb.js`, service_role), Gmail send, reply check, owner alert.
-- **`index.js`** — `POST /run-followups` (requires header `x-cron-secret: $CRON_SECRET`, else 401). Optional `?dry=true` returns the planned actions without sending or writing.
+- **`index.js`** — `POST /run-followups` (requires header `x-cron-secret: $CRON_SECRET`, else 401). Optional `?dry=true` returns the planned actions without sending or writing — and ignores the on/off switch and send window, so the plan can be checked before switching on.
 
 ### Run loop (`runFollowups({dry})`)
 1. Load settings. If `!enabled` or outside send window → return `{skipped: reason}`.
@@ -95,14 +98,15 @@ Then: drop + recreate `leads_enriched` (from its latest definition, incl. `secur
    2. **Claim** (lease): `update leads set followup_next_at = now() + interval '10 minutes' where id = $1 and followup_status = 'active' and followup_step = $n and followup_next_at <= now() returning id`. No row → another run has it; skip.
    3. **Reply check** (real leads and TEST leads alike): Gmail search in the sender account `from:<lead email> after:<quote_sent_at epoch>`, excluding our own sent mail. Hit → `followup_status='replied'`, `followup_stop_reason='replied'`, WhatsApp the owner via the existing Green-API path: `"<name> replied to your quote follow-up — check the inbox."` Stop.
    4. **Send** plain-text + simple HTML email with header `X-PearlView-Kind: followup`. Insert `followup_log` row.
-   5. Success → apply `afterSend` patch, reset `followup_fail_count`. Failure → log error, `followup_fail_count + 1`, `next_at = now() + 1h`; at 3 → `followup_status='error'`, `followup_stop_reason='send_failed'`.
+   5. All engine writes after the claim go through `updateActiveFollowup`, which only applies while the lead is still `active` + Quote Sent — a status the owner sets mid-run (e.g. Booked) is never overwritten with Refused.
+   6. Success → apply `afterSend` patch, reset `followup_fail_count`. Failure → log error, `followup_fail_count + 1`, `next_at = now() + 1h`; at 3 → `followup_status='error'`, `followup_stop_reason='send_failed'`.
 4. Return `{processed, sent, held, replied, errors}`.
 
 ### Extractor guard (`email-extractor.js`)
 Skip any message carrying `X-PearlView-Kind: followup` (code-level check alongside the existing FB/IG self-alert guard), and add `-in:sent` to the form query. Must be verified against a real follow-up email before go-live.
 
-### Reply visibility (verify during implementation)
-Follow-ups set `Reply-To: service@pearlview.com.au` (matches invoices). Confirm replies to that address are visible to the sender Gmail account the reply check searches. If not, set the follow-up `Reply-To` to the sending Gmail account so replies are detectable. The `TEST Reply` case below proves it end-to-end.
+### Reply visibility (resolved 2026-10-10)
+Follow-ups set `Reply-To: service@pearlview.com.au` (matches invoices). `service@` is the **form inbox** the extractor already reads (`GMAIL_FORM_REFRESH_TOKEN`), so the reply check searches it with that token. Sending uses the separate `GMAIL_SEND_REFRESH_TOKEN` account, so our own sent copies never sit in the searched inbox. The `TEST Reply` case proves it end-to-end.
 
 ## Default scripts (seeded into `steps`)
 
@@ -144,7 +148,7 @@ I'll go ahead and close out your inquiry in our system so we don't bother you wi
 Warm regards,
 {sender}
 ```
-`{company}` = `BUSINESS.name`; `{sender}` = `followup_settings.sender_name`.
+`{company}` = `followup_settings.company_name` (fallback `BUSINESS.name`); `{sender}` = `followup_settings.sender_name`.
 
 ## Frontend
 
