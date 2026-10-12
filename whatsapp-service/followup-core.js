@@ -118,8 +118,92 @@ function replyAlertText(lead, inbox, dashboardUrl) {
   ].join('\n');
 }
 
+// ─── Scheduling decisions ────────────────────────────────────────────────────
+const DEFAULT_DELAY_HOURS = [48, 72, 120];
+const MAX_FAILS = 3;
+const HOUR_MS = 3600 * 1000;
+
+function localHour(now, tz) {
+  const part = new Intl.DateTimeFormat('en-AU', { hour: 'numeric', hourCycle: 'h23', timeZone: tz })
+    .formatToParts(now).find(p => p.type === 'hour');
+  return parseInt(part.value, 10) % 24;
+}
+
+function inSendWindow(now, tz, startHour, endHour) {
+  const start = Number.isInteger(startHour) ? startHour : 8;
+  const end = Number.isInteger(endHour) ? endHour : 18;
+  const h = localHour(now, tz);
+  return h >= start && h < end;
+}
+
+function isTestLead(name) {
+  return /^\s*test\b/i.test(String(name || ''));
+}
+
+function delayHours(steps, i) {
+  const raw = steps?.[i]?.delay_hours;
+  const d = typeof raw === 'number' ? raw : parseFloat(raw);
+  return Number.isFinite(d) && d >= 0 ? d : (DEFAULT_DELAY_HOURS[i] ?? 72);
+}
+
+// What to do with ONE due lead. `followup_step` = number of steps already
+// processed, i.e. the index of the step to handle now.
+function planAction(lead, settings, fallbackCompany) {
+  const steps = Array.isArray(settings.steps) ? settings.steps : [];
+  const i = Number(lead.followup_step) || 0;
+  if (i >= steps.length) return { type: 'complete' };
+
+  const test = !!settings.test_mode;
+  if (test && !isTestLead(lead.client_name)) return { type: 'hold', reason: 'test_mode' };
+
+  const step = steps[i] || {};
+  if (step.enabled === false) return { type: 'skip', stepIndex: i };
+
+  const realTo = cleanEmail(lead.email);
+  if (!realTo) return { type: 'no_email' };
+
+  let to = realTo;
+  if (test) {
+    to = cleanEmail(settings.test_email);
+    if (!to) return { type: 'hold', reason: 'no_test_email' }; // never fall through to the customer
+  }
+
+  const ctx = buildContext(lead, settings, fallbackCompany);
+  const subject = renderTemplate(step.subject, ctx).trim();
+  const text = renderTemplate(step.body, ctx).trim();
+  if (!subject || !text) return { type: 'skip', stepIndex: i }; // never send an empty email
+
+  return { type: 'send', stepIndex: i, to, realTo, test, subject: test ? `[TEST → ${realTo}] ${subject}` : subject, text };
+}
+
+// Column patch after step `stepIndex` was processed (sent or skipped). A
+// disabled step's wait still elapses, so later steps keep their timing.
+function afterStep(settings, stepIndex, now, { sent }) {
+  const steps = Array.isArray(settings.steps) ? settings.steps : [];
+  const next = stepIndex + 1;
+  if (next < steps.length) {
+    return {
+      followup_step: next,
+      followup_next_at: new Date(now.getTime() + delayHours(steps, next) * HOUR_MS).toISOString(),
+      followup_fail_count: 0,
+    };
+  }
+  const done = { followup_step: next, followup_status: 'completed', followup_next_at: null, followup_fail_count: 0 };
+  // The final email tells the customer we're closing their inquiry — so we do.
+  return sent ? { ...done, lead_status: 'Refused', refusal_reason: REFUSAL_CODE } : done;
+}
+
+function afterFailure(lead, now) {
+  const fails = (Number(lead.followup_fail_count) || 0) + 1;
+  if (fails >= MAX_FAILS) {
+    return { followup_fail_count: fails, followup_status: 'error', followup_stop_reason: 'send_failed', followup_next_at: null };
+  }
+  return { followup_fail_count: fails, followup_next_at: new Date(now.getTime() + HOUR_MS).toISOString() };
+}
+
 module.exports = {
-  FOLLOWUP_HEADER, FOLLOWUP_KIND, REFUSAL_CODE,
+  FOLLOWUP_HEADER, FOLLOWUP_KIND, REFUSAL_CODE, DEFAULT_DELAY_HOURS, MAX_FAILS,
   cleanEmail, firstName, formatMoney, renderTemplate, buildContext,
   htmlFromText, b64url, buildFollowupMime, isFollowupMessage, replyAlertText,
+  localHour, inSendWindow, isTestLead, delayHours, planAction, afterStep, afterFailure,
 };
