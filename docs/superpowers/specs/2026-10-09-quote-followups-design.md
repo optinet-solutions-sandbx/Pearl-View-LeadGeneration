@@ -103,7 +103,7 @@ Then: drop + recreate `leads_enriched` (from its latest definition, incl. `secur
 4. Return `{processed, sent, held, replied, errors}`.
 
 ### Extractor guard (`email-extractor.js`)
-Skip any message carrying `X-PearlView-Kind: followup` (code-level check alongside the existing FB/IG self-alert guard), and add `-in:sent` to the form query. Must be verified against a real follow-up email before go-live.
+Skip any message carrying `X-PearlView-Kind: followup` (code-level check alongside the existing FB/IG self-alert guard). The header guard alone excludes our follow-ups; `-in:sent` was dropped from the form query because the website form may mail through the service@ account. Must be verified against a real follow-up email before go-live.
 
 ### Reply visibility (resolved 2026-10-10)
 Follow-ups set `Reply-To: service@pearlview.com.au` (matches invoices). `service@` is the **form inbox** the extractor already reads (`GMAIL_FORM_REFRESH_TOKEN`), so the reply check searches it with that token. Sending uses the separate `GMAIL_SEND_REFRESH_TOKEN` account, so our own sent copies never sit in the searched inbox. The `TEST Reply` case proves it end-to-end.

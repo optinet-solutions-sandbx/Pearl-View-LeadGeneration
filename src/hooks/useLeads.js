@@ -3,6 +3,7 @@ import { STATUS_MAP, AT_STATUS_MAP, PROG_MAP } from '../utils/constants';
 import { parseDate } from '../utils/dateUtils';
 import { createRecord, updateRecord, deleteRecord, fetchRecords, AT_TABLES } from '../utils/airtableSync';
 import { USE_SUPABASE, sbSelect, sbCreate, sbPatchLead, sbLeadRowToRecord, sbBookingRowToRecord, sbClientRowToRecord } from '../utils/supabaseClient';
+import { followupStartPatch } from '../utils/followupTemplate';
 
 const VALID_JOB_TYPES = new Set(['Window Cleaning', 'Pressure Washing', 'Solar Panel', 'Other']);
 
@@ -443,7 +444,12 @@ export function useLeads(technician = false) {
       const confirmed = normaliseRecord(result);
       const confirmedStatus   = confirmed?.status   ?? status;
       const confirmedProgress = confirmed?.progress ?? (PROG_MAP[status] || 10);
-      return { ...l, status: confirmedStatus, progress: confirmedProgress };
+      // The DB trigger rewrites the follow-up columns on a status change; take them from the confirmed row.
+      const fu = confirmed ? {
+        quoteSentAt: confirmed.quoteSentAt, followupStatus: confirmed.followupStatus, followupStep: confirmed.followupStep,
+        followupNextAt: confirmed.followupNextAt, followupStopReason: confirmed.followupStopReason,
+      } : {};
+      return { ...l, status: confirmedStatus, progress: confirmedProgress, ...fu };
     }));
     // Scenario 3 → Scenario 1: lead had payment but wasn't job_done yet — update Revenue
     if (status === 'job_done' && currentLead?.paid && currentLead?.paidAmount > 0) {
@@ -1327,13 +1333,8 @@ export function useLeads(technician = false) {
   const startFollowups = useCallback(leadId => {
     const lead = leads.find(l => l.id === leadId);
     if (!lead) return Promise.resolve(false);
-    const step = lead.followupStatus ? lead.followupStep : 0;
-    const nowIso = new Date().toISOString();
-    const quoteSentAt = lead.quoteSentAt || nowIso; // reply check counts replies from here
-    return setFollowupState(leadId,
-      { 'Follow-up Status': 'active', 'Follow-up Step': step, 'Follow-up Next At': nowIso,
-        'Follow-up Fail Count': 0, 'Follow-up Stop Reason': null, 'Quote Sent At': quoteSentAt },
-      { followupStatus: 'active', followupStep: step, followupNextAt: nowIso, followupStopReason: null, quoteSentAt });
+    const { fields, local } = followupStartPatch(lead, new Date().toISOString());
+    return setFollowupState(leadId, fields, local);
   }, [leads, setFollowupState]);
 
   const stopFollowups = useCallback(leadId => setFollowupState(leadId,

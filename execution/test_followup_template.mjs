@@ -79,4 +79,25 @@ assert.match(D({ followupStatus: 'completed', status: 'refused' }).text, /no res
 assert.equal(fe.describeFollowup(L({ status: 'booked', followupStatus: 'stopped' }), S), null, 'hidden once the lead moves on');
 assert.equal(fe.describeFollowup(L(), null), null, 'hidden when follow-ups are not set up');
 
+assert.match(D({}, { ...S, enabled: false }).text, /Paused/);
+assert.equal(D({}, { ...S, enabled: false }).action, 'stop');
+assert.equal(D({ followupStatus: null, email: 'Jane <jane@x.com>' }).action, 'start', 'name-and-address email counts');
+
+// ── followupStartPatch ──────────────────────────────────────────────────────
+const NOW = '2026-10-12T01:00:00.000Z';
+const p1 = fe.followupStartPatch({ followupStatus: null, followupStep: 0, quoteSentAt: null }, NOW);
+assert.equal(p1.local.followupStep, 0);
+assert.equal(p1.local.quoteSentAt, NOW);
+assert.equal(p1.fields['Quote Sent At'], NOW);
+assert.equal(p1.fields['Follow-up Status'], 'active');
+assert.equal(p1.fields['Follow-up Fail Count'], 0);
+assert.equal(p1.fields['Follow-up Stop Reason'], null);
+const p2 = fe.followupStartPatch({ followupStatus: 'stopped', followupStep: 2, quoteSentAt: 'X' }, NOW);
+assert.equal(p2.local.followupStep, 2);
+assert.equal(p2.local.quoteSentAt, 'X');
+const p3 = fe.followupStartPatch({ followupStatus: 'replied', followupStep: 1, quoteSentAt: 'X' }, NOW);
+assert.equal(p3.local.followupStep, 1);
+assert.equal(p3.local.quoteSentAt, NOW, 'resume after reply resets the reply baseline');
+assert.equal(p3.fields['Follow-up Step'], 1);
+
 console.log('PASS — followupTemplate');

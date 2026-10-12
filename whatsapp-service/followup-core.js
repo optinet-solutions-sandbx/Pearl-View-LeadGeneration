@@ -143,7 +143,7 @@ function isTestLead(name) {
 function delayHours(steps, i) {
   const raw = steps?.[i]?.delay_hours;
   const d = typeof raw === 'number' ? raw : parseFloat(raw);
-  return Number.isFinite(d) && d >= 0 ? d : (DEFAULT_DELAY_HOURS[i] ?? 72);
+  return Number.isFinite(d) && d >= 0 && d <= 8760 ? d : (DEFAULT_DELAY_HOURS[i] ?? 72);
 }
 
 // What to do with ONE due lead. `followup_step` = number of steps already

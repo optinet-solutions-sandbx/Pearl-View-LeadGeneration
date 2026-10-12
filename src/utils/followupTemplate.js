@@ -5,6 +5,8 @@
 // enforces both.
 
 const EMAIL_RE = /^[^\s<>@,;"'()]+@[^\s<>@,;"'()]+\.[^\s<>@,;"'()]+$/;
+// Unanchored: same rule as the sender's cleanEmail ("Jane <jane@x.com>" is sendable).
+const HAS_EMAIL_RE = /[^\s<>@,;"'()]+@[^\s<>@,;"'()]+\.[^\s<>@,;"'()]+/;
 const NO_NAME = /^(unknown( caller)?|—|-|n\/a)?$/i;
 
 export const PLACEHOLDERS = [
@@ -120,11 +122,12 @@ export function describeFollowup(lead, s, now = new Date()) {
 
   const total = totalSteps(s);
   const step = lead.followupStep || 0;
-  const hasEmail = EMAIL_RE.test(String(lead.email || '').trim());
+  const hasEmail = HAS_EMAIL_RE.test(String(lead.email || '').trim());
   const canGo = hasEmail && step < total;
 
   switch (lead.followupStatus) {
     case 'active': {
+      if (!s.enabled) return { tone: 'muted', text: 'Paused — automatic follow-ups are switched off in Settings.', action: 'stop' };
       if (isHeld(lead, s)) return { tone: 'warn', text: 'Held — test mode is on, so only leads named TEST… are emailed.', action: 'stop' };
       const when = lead.followupNextAt && new Date(lead.followupNextAt) > now ? `~${fmtWhen(lead.followupNextAt)}` : 'at the next check';
       const text = step === 0 ? `Follow-up 1 of ${total} goes out ${when}.` : `Follow-up ${step} of ${total} sent · next ${when}.`;
@@ -148,4 +151,19 @@ export function describeFollowup(lead, s, now = new Date()) {
         action: 'start',
       };
   }
+}
+
+// Fields + local state for Start/Resume. Never enrolled -> step 0. Resume keeps the
+// step. quote_sent_at is the reply-check baseline: stamp it when missing, and reset it
+// when resuming after a reply (otherwise the same reply is found again).
+export function followupStartPatch(lead, nowIso) {
+  const step = lead.followupStatus ? (lead.followupStep || 0) : 0;
+  const quoteSentAt = (!lead.quoteSentAt || lead.followupStatus === 'replied') ? nowIso : lead.quoteSentAt;
+  return {
+    fields: {
+      'Follow-up Status': 'active', 'Follow-up Step': step, 'Follow-up Next At': nowIso,
+      'Follow-up Fail Count': 0, 'Follow-up Stop Reason': null, 'Quote Sent At': quoteSentAt,
+    },
+    local: { followupStatus: 'active', followupStep: step, followupNextAt: nowIso, followupStopReason: null, quoteSentAt },
+  };
 }

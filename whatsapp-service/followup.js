@@ -24,7 +24,7 @@ function gmailFor(refreshToken) {
 async function sendEmail({ to, subject, text, html }) {
   const gmail = gmailFor(process.env.GMAIL_SEND_REFRESH_TOKEN || process.env.GMAIL_FORM_REFRESH_TOKEN);
   const mime = core.buildFollowupMime({ fromName: BUSINESS.name, fromEmail: BUSINESS.email, to, subject, text, html });
-  const r = await gmail.users.messages.send({ userId: 'me', requestBody: { raw: core.b64url(mime) } });
+  const r = await gmail.users.messages.send({ userId: 'me', requestBody: { raw: core.b64url(mime) } }, { timeout: 30000 });
   return r.data.id;
 }
 
@@ -36,8 +36,8 @@ async function hasReplied(email, since) {
   // Fail closed: without the token we cannot rule out a reply, so nothing is sent.
   if (!token) throw new Error('GMAIL_FORM_REFRESH_TOKEN not set — reply check unavailable');
   const r = await gmailFor(token).users.messages.list({
-    userId: 'me', q: core.replySearchQuery(email, since), maxResults: 1,
-  });
+    userId: 'me', q: core.replySearchQuery(email, since), maxResults: 1, includeSpamTrash: true,
+  }, { timeout: 30000 });
   return (r.data.messages || []).length > 0;
 }
 
@@ -51,7 +51,10 @@ async function alertOwner(lead) {
     return;
   }
   const msg = core.replyAlertText(lead, BUSINESS.email, DASHBOARD_URL);
-  await Promise.allSettled(recipients.map(to => sendText(to, msg)));
+  const results = await Promise.allSettled(recipients.map(to => sendText(to, msg)));
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') console.error(`[ALERT] 🚨 [followups] reply alert to ${recipients[i]} failed: ${r.reason?.message || r.reason}`);
+  });
 }
 
 // The audit row is best-effort: a failed log must never block or undo a state change.
@@ -122,6 +125,8 @@ async function runFollowups({ dry = false, now = new Date(), deps = realDeps } =
       }
 
       const step = action.stepIndex + 1;
+      // Compute the post-send patch BEFORE sending: if it can't be built we must not send at all.
+      const advance = core.afterStep(settings, action.stepIndex, now, { sent: true });
       let messageId;
       try {
         messageId = await deps.sendEmail({ to: action.to, subject: action.subject, text: action.text, html: core.htmlFromText(action.text) });
@@ -135,7 +140,6 @@ async function runFollowups({ dry = false, now = new Date(), deps = realDeps } =
       }
       // Email is out. Advance the step BEFORE anything else that can throw, so the
       // lease expiring can never re-send the same step.
-      const advance = core.afterStep(settings, action.stepIndex, now, { sent: true });
       try {
         await deps.update(lead.id, advance);
       } catch (firstErr) {

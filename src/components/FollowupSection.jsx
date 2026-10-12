@@ -37,7 +37,7 @@ export default function FollowupSection({ lead }) {
     const ok = isStop ? await stopFollowups(lead.id) : await startFollowups(lead.id);
     setBusy(false);
     showToast(!ok ? 'Could not update follow-ups — try again'
-      : isStop ? 'Follow-ups stopped' : 'Follow-ups on — the next email goes at the next check');
+      : isStop ? 'Follow-ups stopped' : 'Follow-ups started');
   }
 
   return (

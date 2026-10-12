@@ -208,3 +208,7 @@ test('afterFailure retries in 1h and gives up on the 3rd failure', () => {
     followup_fail_count: 3, followup_status: 'error', followup_stop_reason: 'send_failed', followup_next_at: null,
   });
 });
+
+test('delayHours falls back to the default above the 8760h clamp', () => {
+  assert.equal(core.delayHours([{ delay_hours: 9000 }], 0), 48);
+});

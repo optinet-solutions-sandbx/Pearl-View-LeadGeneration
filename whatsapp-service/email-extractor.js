@@ -448,7 +448,7 @@ async function extractFormLeads({ notify = true } = {}) {
   // Exclude our OWN Facebook/Instagram lead-alert emails: they are sent to this
   // same inbox and — being from @pearlview.com.au with Name:/Phone:/Email: lines
   // — would otherwise be mis-parsed as website form submissions → duplicate leads.
-  const query = `(${FORM_GMAIL_MATCH}) -label:"${FORM_LABEL_NAME}" -subject:"New Facebook lead" -subject:"New Instagram lead" -in:sent ${dateFilter}`;
+  const query = `(${FORM_GMAIL_MATCH}) -label:"${FORM_LABEL_NAME}" -subject:"New Facebook lead" -subject:"New Instagram lead" ${dateFilter}`;
   const messages = await fetchUnprocessedMessages(gmail, query);
 
   let processed = 0;
