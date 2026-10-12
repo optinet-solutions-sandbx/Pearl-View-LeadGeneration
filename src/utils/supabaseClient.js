@@ -100,6 +100,8 @@ const LEAD_COLS = {
   'Call Duration': 'call_duration', 'Next Follow-up Date': 'next_follow_up_date', 'Scheduled Cleaning Date': 'scheduled_cleaning_date',
   'Property Details': 'property_details', 'Notes': 'notes', 'Refusal Reason': 'refusal_reason', 'City': 'city',
   'Invoice Number': 'invoice_number', 'Invoice Sent': 'invoice_sent',
+  'Quote Sent At': 'quote_sent_at', 'Follow-up Status': 'followup_status', 'Follow-up Step': 'followup_step',
+  'Follow-up Next At': 'followup_next_at', 'Follow-up Stop Reason': 'followup_stop_reason', 'Follow-up Fail Count': 'followup_fail_count',
 };
 const REVENUE_COLS = {
   'Revenue Name': 'revenue_name', 'Date': 'date', 'Client Name': 'client_name', 'Phone': 'phone',
@@ -188,6 +190,32 @@ export async function fetchTechnicians() {
   } catch { return []; }
 }
 
+// ── Quote follow-ups (owner only; RLS hides these from technicians) ─────────
+// null = feature not set up on this branch (table missing) / not the owner.
+export async function fetchFollowupSettings() {
+  try {
+    const rows = await sbSelect('followup_settings?id=eq.1&select=*');
+    return (rows && rows[0]) || null;
+  } catch { return null; }
+}
+export async function saveFollowupSettings(patch) {
+  await ensureToken();
+  const r = await fetch(`${SB_URL}/rest/v1/followup_settings?id=eq.1`, {
+    method: 'PATCH', headers: { ...hdrJson(), Prefer: 'return=representation' },
+    body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
+  });
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return (await r.json())[0] || null;
+}
+export async function fetchFollowupLog(leadId) {
+  try {
+    return (await sbSelect(`followup_log?lead_id=eq.${leadId}&select=step,sent_at,to_email,test_mode,error&order=sent_at.desc&limit=20`)) || [];
+  } catch { return []; }
+}
+export async function countActiveFollowups() {
+  try { return ((await sbSelect('leads?followup_status=eq.active&select=id')) || []).length; }
+  catch { return 0; }
+}
 // ── generic CRUD (airtableSync delegates here) ───────────────────────────────
 export async function sbCreate(tableId, fields) {
   const reg = REG[tableId]; if (!reg) { console.error('sbCreate: unknown table', tableId); return null; }
@@ -254,6 +282,8 @@ export function sbLeadRowToRecord(row) {
       'Next Follow-up Date': row.next_follow_up_date, 'Scheduled Cleaning Date': row.scheduled_cleaning_date,
       'Property Details': row.property_details, 'Notes': row.notes, 'Refusal Reason': row.refusal_reason, 'City': row.city,
       'Invoice Number': row.invoice_number, 'Invoice Sent': row.invoice_sent,
+      'Quote Sent At': row.quote_sent_at, 'Follow-up Status': row.followup_status, 'Follow-up Step': row.followup_step,
+      'Follow-up Next At': row.followup_next_at, 'Follow-up Stop Reason': row.followup_stop_reason,
     },
   };
 }

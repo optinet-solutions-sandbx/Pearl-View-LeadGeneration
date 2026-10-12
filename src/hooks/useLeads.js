@@ -139,6 +139,11 @@ function normaliseRecord(rec) {
     leadSource: f['Lead Source'] || '',
     invoiceNumber: f['Invoice Number'] || null,
     invoiceSent: !!f['Invoice Sent'],
+    quoteSentAt: f['Quote Sent At'] || null,
+    followupStatus: f['Follow-up Status'] || null,
+    followupStep: Number(f['Follow-up Step']) || 0,
+    followupNextAt: f['Follow-up Next At'] || null,
+    followupStopReason: f['Follow-up Stop Reason'] || null,
     airtableId: rec.id,
   };
 }
@@ -1302,6 +1307,39 @@ export function useLeads(technician = false) {
     }
   }, []);
 
+  // ─── Quote follow-ups: manual Start/Resume + Stop (Supabase only — these
+  //     columns don't exist in Airtable, and an unknown field would fail the PATCH).
+  const setFollowupState = useCallback(async (leadId, fields, local) => {
+    const lead = leads.find(l => l.id === leadId);
+    if (!USE_SUPABASE || !lead?.airtableId) return false;
+    setLeads(prev => prev.map(l => (l.id === leadId ? { ...l, ...local } : l)));
+    const res = await patchAirtable(lead.airtableId, fields);
+    if (res && res.__patchFailed) {
+      const revert = Object.fromEntries(Object.keys(local).map(k => [k, lead[k]]));
+      setLeads(prev => prev.map(l => (l.id === leadId ? { ...l, ...revert } : l)));
+      return false;
+    }
+    return true;
+  }, [leads, patchAirtable]);
+
+  // Start (never enrolled → step 0) or Resume (keeps its step). The next step
+  // goes out at the next check inside the send window.
+  const startFollowups = useCallback(leadId => {
+    const lead = leads.find(l => l.id === leadId);
+    if (!lead) return Promise.resolve(false);
+    const step = lead.followupStatus ? lead.followupStep : 0;
+    const nowIso = new Date().toISOString();
+    const quoteSentAt = lead.quoteSentAt || nowIso; // reply check counts replies from here
+    return setFollowupState(leadId,
+      { 'Follow-up Status': 'active', 'Follow-up Step': step, 'Follow-up Next At': nowIso,
+        'Follow-up Fail Count': 0, 'Follow-up Stop Reason': null, 'Quote Sent At': quoteSentAt },
+      { followupStatus: 'active', followupStep: step, followupNextAt: nowIso, followupStopReason: null, quoteSentAt });
+  }, [leads, setFollowupState]);
+
+  const stopFollowups = useCallback(leadId => setFollowupState(leadId,
+    { 'Follow-up Status': 'stopped', 'Follow-up Stop Reason': 'manual', 'Follow-up Next At': null },
+    { followupStatus: 'stopped', followupStopReason: 'manual', followupNextAt: null }), [setFollowupState]);
+
   return {
     readOnly: technician,
     leads, deletedLeads, calBookings, clients, isLoading, fetchLeads,
@@ -1312,5 +1350,6 @@ export function useLeads(technician = false) {
     addCalBooking, removeCalBooking, updateCalBooking, recordBookingPayment,
     deletePayment, syncToClients, upsertClient, syncClientsFromLeads, updateClient,
     archivedClients, archiveClient, restoreClient, permanentDeleteClient,
+    startFollowups, stopFollowups,
   };
 }
