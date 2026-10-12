@@ -69,6 +69,7 @@ export const EXPENSE_CATEGORIES = [
   'Salary - Joy',
   'Salary - Omri',
   'Salary - Jema',
+  'Salary - Tomer',
   'Fuel',
   'Cleaning Supplies/Equipment',
   'Advertising',
