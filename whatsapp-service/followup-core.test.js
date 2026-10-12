@@ -1,6 +1,16 @@
 // Unit tests for the pure follow-up logic. Run: node --test followup-core.test.js
 const test = require('node:test');
 const assert = require('node:assert/strict');
+
+test('replySearchQuery bounds the search by the quote date when it is valid', () => {
+  assert.equal(core.replySearchQuery('jane@x.com', '2026-10-09T00:00:00Z'),
+    'from:jane@x.com after:1791504000 -in:sent -in:chats');
+});
+
+test('replySearchQuery falls back to a 30-day window when the date is null or invalid', () => {
+  assert.equal(core.replySearchQuery('jane@x.com', null), 'from:jane@x.com newer_than:30d -in:sent -in:chats');
+  assert.equal(core.replySearchQuery('jane@x.com', 'garbage'), 'from:jane@x.com newer_than:30d -in:sent -in:chats');
+});
 const core = require('./followup-core');
 
 test('cleanEmail extracts a bare address from messy input', () => {

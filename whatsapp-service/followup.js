@@ -31,11 +31,12 @@ async function sendEmail({ to, subject, text, html }) {
 // Replies go to Reply-To = BUSINESS.email (service@…), which is the FORM inbox
 // the email extractor already reads — so search it with the form token.
 async function hasReplied(email, since) {
+  if (!email) return false;
   const token = process.env.GMAIL_FORM_REFRESH_TOKEN;
-  if (!token || !email || !since) return false;
-  const after = Math.floor(new Date(since).getTime() / 1000);
+  // Fail closed: without the token we cannot rule out a reply, so nothing is sent.
+  if (!token) throw new Error('GMAIL_FORM_REFRESH_TOKEN not set — reply check unavailable');
   const r = await gmailFor(token).users.messages.list({
-    userId: 'me', q: `from:${email} after:${after} -in:sent -in:chats`, maxResults: 1,
+    userId: 'me', q: core.replySearchQuery(email, since), maxResults: 1,
   });
   return (r.data.messages || []).length > 0;
 }
@@ -51,6 +52,15 @@ async function alertOwner(lead) {
   }
   const msg = core.replyAlertText(lead, BUSINESS.email, DASHBOARD_URL);
   await Promise.allSettled(recipients.map(to => sendText(to, msg)));
+}
+
+// The audit row is best-effort: a failed log must never block or undo a state change.
+async function safeLog(deps, row, leadId) {
+  try {
+    await deps.log(row);
+  } catch (err) {
+    console.error(`[followups] log write failed for ${leadId}: ${err.message}`);
+  }
 }
 
 const realDeps = {
@@ -118,14 +128,26 @@ async function runFollowups({ dry = false, now = new Date(), deps = realDeps } =
       } catch (err) {
         const msg = String(err.message || err).slice(0, 500);
         console.error(`[ALERT] 🚨 [followups] send failed for ${lead.id} (FU${step}): ${msg}`);
-        await deps.log({ lead_id: lead.id, step, to_email: action.to, test_mode: action.test, error: msg });
-        await deps.update(lead.id, core.afterFailure(lead, now));
+        await deps.update(lead.id, core.afterFailure(lead, now)); // count first: a log error must not skip it
+        await safeLog(deps, { lead_id: lead.id, step, to_email: action.to, test_mode: action.test, error: msg }, lead.id);
         out.errors++;
         continue;
       }
-      await deps.log({ lead_id: lead.id, step, to_email: action.to, test_mode: action.test, gmail_message_id: messageId });
-      await deps.update(lead.id, core.afterStep(settings, action.stepIndex, now, { sent: true }));
+      // Email is out. Advance the step BEFORE anything else that can throw, so the
+      // lease expiring can never re-send the same step.
+      const advance = core.afterStep(settings, action.stepIndex, now, { sent: true });
+      try {
+        await deps.update(lead.id, advance);
+      } catch (firstErr) {
+        try {
+          await deps.update(lead.id, advance);
+        } catch (retryErr) {
+          console.error(`[ALERT] 🚨 [followups] SENT FU${step} to ${action.to} for ${lead.id} but could not advance the step: ${retryErr.message}`);
+          out.errors++;
+        }
+      }
       out.sent++;
+      await safeLog(deps, { lead_id: lead.id, step, to_email: action.to, test_mode: action.test, gmail_message_id: messageId }, lead.id);
       console.log(`[followups] FU${step} sent to ${action.to} for ${lead.client_name} (${lead.id})${action.test ? ' [TEST]' : ''}`);
     } catch (err) {
       // e.g. Gmail/DB outage during the reply check — the lease expires and a later run retries.

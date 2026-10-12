@@ -4,6 +4,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { runFollowups } = require('./followup');
 
+// The engine logs deliberately on failure paths; keep the test output clean.
+test.beforeEach(() => {
+  test.mock.method(console, 'log', () => {});
+  test.mock.method(console, 'error', () => {});
+});
+test.afterEach(() => test.mock.restoreAll());
+
 const NOW = new Date('2026-10-12T00:00:00Z'); // 11:00 Sydney — inside 8–18
 const LATE = new Date('2026-10-12T10:00:00Z'); // 21:00 Sydney — outside
 const SETTINGS = (o = {}) => ({
@@ -21,18 +28,24 @@ const LEAD = (o = {}) => ({
   quote_sent_at: '2026-10-09T00:00:00Z', followup_step: 0, followup_fail_count: 0, ...o,
 });
 
-function fakeDeps({ settings = SETTINGS(), leads = [LEAD()], claim = true, replied = false, sendFails = false } = {}) {
+function fakeDeps({ settings = SETTINGS(), leads = [LEAD()], claim = true, replied = false, sendFails = false,
+  updateThrowsTimes = 0, logThrows = false, repliedThrows = false } = {}) {
   const calls = { fetch: [], claim: [], update: [], log: [], send: [], alert: [] };
+  let updateFailsLeft = updateThrowsTimes;
   return {
     calls,
     deps: {
       getSettings: async () => settings,
       fetchDue: async args => { calls.fetch.push(args); return leads; },
       claim: async (id, step) => { calls.claim.push([id, step]); return claim; },
-      update: async (id, cols) => { calls.update.push([id, cols]); return true; },
-      log: async row => { calls.log.push(row); },
+      update: async (id, cols) => {
+        calls.update.push([id, cols]);
+        if (updateFailsLeft > 0) { updateFailsLeft--; throw new Error('db down'); }
+        return true;
+      },
+      log: async row => { calls.log.push(row); if (logThrows) throw new Error('log down'); },
       sendEmail: async msg => { calls.send.push(msg); if (sendFails) throw new Error('gmail down'); return 'msg-1'; },
-      hasReplied: async () => replied,
+      hasReplied: async () => { if (repliedThrows) throw new Error('reply check down'); return replied; },
       alertOwner: async lead => { calls.alert.push(lead.id); },
     },
   };
@@ -120,6 +133,36 @@ test('a lead with no usable email is parked as no_email', async () => {
   await runFollowups({ now: NOW, deps: f.deps });
   assert.deepEqual(f.calls.update[0], ['L1', { followup_status: 'no_email', followup_next_at: null }]);
   assert.equal(f.calls.send.length, 0);
+});
+
+test('a successful send whose step-advance update throws once is retried; the send still counts', async () => {
+  const f = fakeDeps({ updateThrowsTimes: 1 });
+  const out = await runFollowups({ now: NOW, deps: f.deps });
+  assert.equal(f.calls.update.length, 2);
+  assert.equal(f.calls.update[1][1].followup_step, 1);
+  assert.equal(out.sent, 1);
+  assert.equal(f.calls.log.length, 1);
+});
+
+test('a successful send whose log write throws still advances the step and counts the send', async () => {
+  const f = fakeDeps({ logThrows: true });
+  const out = await runFollowups({ now: NOW, deps: f.deps });
+  assert.equal(out.sent, 1);
+  assert.equal(f.calls.update[0][1].followup_step, 1);
+});
+
+test('a failed send whose error log throws still records the failure count', async () => {
+  const f = fakeDeps({ sendFails: true, logThrows: true });
+  await runFollowups({ now: NOW, deps: f.deps });
+  assert.deepEqual(f.calls.update[0], ['L1', { followup_fail_count: 1, followup_next_at: '2026-10-12T01:00:00.000Z' }]);
+});
+
+test('a reply-check error fails closed: nothing is sent or written', async () => {
+  const f = fakeDeps({ repliedThrows: true });
+  const out = await runFollowups({ now: NOW, deps: f.deps });
+  assert.equal(out.errors, 1);
+  assert.equal(f.calls.send.length, 0);
+  assert.equal(f.calls.update.length, 0);
 });
 
 test('dry run reports the plan without claiming/sending — even when disabled and outside the window', async () => {

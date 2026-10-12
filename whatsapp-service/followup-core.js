@@ -201,9 +201,18 @@ function afterFailure(lead, now) {
   return { followup_fail_count: fails, followup_next_at: new Date(now.getTime() + HOUR_MS).toISOString() };
 }
 
+// Gmail search for a customer reply since the quote went out. A missing/invalid
+// quote date falls back to a 30-day window (never an unbounded search).
+function replySearchQuery(email, sinceIso) {
+  const ms = Date.parse(sinceIso);
+  if (Number.isNaN(ms)) return `from:${email} newer_than:30d -in:sent -in:chats`;
+  return `from:${email} after:${Math.floor(ms / 1000)} -in:sent -in:chats`;
+}
+
 module.exports = {
   FOLLOWUP_HEADER, FOLLOWUP_KIND, REFUSAL_CODE, DEFAULT_DELAY_HOURS, MAX_FAILS,
   cleanEmail, firstName, formatMoney, renderTemplate, buildContext,
   htmlFromText, b64url, buildFollowupMime, isFollowupMessage, replyAlertText,
   localHour, inSendWindow, isTestLead, delayHours, planAction, afterStep, afterFailure,
+  replySearchQuery,
 };
