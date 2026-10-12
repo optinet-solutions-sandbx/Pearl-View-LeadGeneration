@@ -25,8 +25,9 @@ const patchLead = async (id, f) => (await rest('PATCH', `leads?id=eq.${id}`, f))
 const getLead = async (id, cols) => (await rest('GET', `leads?id=eq.${id}&select=${cols}`))[0];
 const setEnabled = enabled => rest('PATCH', 'followup_settings?id=eq.1', { enabled });
 
-const [orig] = await rest('GET', 'followup_settings?id=eq.1&select=enabled,steps');
+const [orig] = await rest('GET', 'followup_settings?id=eq.1&select=enabled,test_mode,steps');
 assert.ok(orig, 'followup_settings row missing — run execution/supabase_followups.sql first');
+assert.equal(orig.test_mode, true, 'Refusing to run: followup_settings.test_mode must be ON (real leads enrolled during the run would otherwise be emailable)');
 const d1 = Number(orig.steps[0].delay_hours);
 const created = [];
 const EMAIL = 'trigger-check@example.com';
@@ -81,6 +82,7 @@ try {
 
   console.log('PASS — follow-up trigger + guarded updates behave as designed');
 } finally {
+  try { await setEnabled(orig.enabled); }
+  catch (e) { console.error('🚨 FEATURE LEFT ENABLED — set followup_settings.enabled back to', orig.enabled, 'manually:', e.message); process.exitCode = 1; }
   for (const id of created) await rest('DELETE', `leads?id=eq.${id}`).catch(e => console.error('cleanup failed', id, e.message));
-  await setEnabled(orig.enabled);
 }

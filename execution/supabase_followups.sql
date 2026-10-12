@@ -3,6 +3,7 @@
 -- Ships OFF (enabled=false) and in test mode. Then verify:
 --   node --env-file=.env execution/test_followup_trigger.mjs
 begin;
+set local lock_timeout = '5s';  -- don't queue dashboard writes behind a long ALTER
 
 -- 1. follow-up state on each lead
 alter table leads
@@ -65,21 +66,25 @@ grant select, insert, update, delete on followup_settings, followup_log to authe
 
 -- 5. enrollment trigger — fires for EVERY write path (Kanban, panel, backend)
 create or replace function leads_followup_enroll() returns trigger
-language plpgsql security definer set search_path = public as $fn$
+language plpgsql security definer set search_path = public, pg_temp as $fn$
 declare
   v_enabled boolean;
   v_steps   jsonb;
   v_delay   numeric;
+  v_gap     interval;
 begin
   select enabled, steps into v_enabled, v_steps from followup_settings where id = 1;
   v_enabled := coalesce(v_enabled, false);
-  -- a bad settings value must never block a lead save → safe cast, default 48h
+  -- bad/NaN/out-of-range (>8760 h = 1 year) delay -> 48 h; a malformed setting must never block a lead save
   begin
     v_delay := (v_steps->0->>'delay_hours')::numeric;
+    if v_delay is null or v_delay = 'NaN' or v_delay < 0 or v_delay > 8760 then
+      v_delay := 48;
+    end if;
+    v_gap := v_delay * interval '1 hour';
   exception when others then
-    v_delay := null;
+    v_gap := interval '48 hours';
   end;
-  if v_delay is null or v_delay < 0 then v_delay := 48; end if;
 
   -- (a) entering Quote Sent → stamp it; enroll only while the feature is on
   if new.lead_status = 'Quote Sent'
@@ -95,7 +100,7 @@ begin
       new.followup_status := 'no_email';
     else
       new.followup_status  := 'active';
-      new.followup_next_at := now() + v_delay * interval '1 hour';
+      new.followup_next_at := now() + v_gap;
     end if;
     return new;
   end if;
@@ -115,7 +120,7 @@ begin
        and old.followup_status = 'no_email' and new.followup_status is not distinct from 'no_email'
        and coalesce(btrim(old.email), '') = '' and coalesce(btrim(new.email), '') <> '' then
       new.followup_status  := 'active';
-      new.followup_next_at := now() + v_delay * interval '1 hour';
+      new.followup_next_at := now() + v_gap;
     end if;
   end if;
   return new;
