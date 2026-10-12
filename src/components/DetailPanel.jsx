@@ -3,6 +3,7 @@ import { useLeadsContext } from '../context/LeadsContext';
 import { formatDate, formatLeadSource } from '../utils/dateUtils';
 import { overlayClose } from '../utils/overlayClose';
 import { REFUSE_LABELS } from '../utils/constants';
+import FollowupSection from './FollowupSection';
 
 
 function PaymentModal({ leadName, initAmount, initMethod, onSubmit, onClose, saving }) {
@@ -526,6 +527,9 @@ export default function DetailPanel() {
           ) : null)}
           <div className="jrow"><span className="jlbl">Lead Source</span>{srcTag}</div>
         </div>
+
+        {/* Quote follow-ups (owner only; renders nothing unless relevant) */}
+        {!readOnly && <FollowupSection lead={l} />}
 
         {/* Payment (owner only — money is hidden for read-only technicians) */}
         {!readOnly && (

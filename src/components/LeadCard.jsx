@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useLeadsContext } from '../context/LeadsContext';
 import { REFUSE_LABELS, COLS } from '../utils/constants';
+import { followupChip } from '../utils/followupTemplate';
 
 // ── Aging timer helpers ───────────────────────────────────────────────────────
 function getAge(dateObj) {
@@ -29,8 +30,9 @@ const PREV_STATUS = { in_progress: 'new', quote_sent: 'in_progress', booked: 'qu
 export default function LeadCard({ lead }) {
   const {
     activeId, openPanel, toggleStar, changeStatus,
-    renameLead, showToast, readOnly,
+    renameLead, showToast, readOnly, followupSettings,
   } = useLeadsContext();
+  const fuChip = readOnly ? null : followupChip(lead, followupSettings);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName,  setEditName]  = useState('');
@@ -256,7 +258,7 @@ export default function LeadCard({ lead }) {
         </div>
 
         {/* Smart badges: aging, overdue */}
-        {(age || isOverdue) && (
+        {(age || isOverdue || fuChip) && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '5px' }}>
             {age && (
               <span style={{ fontSize: '9.5px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px', background: ageSty.bg, color: ageSty.color }}>
@@ -266,6 +268,11 @@ export default function LeadCard({ lead }) {
             {isOverdue && (
               <span style={{ fontSize: '9.5px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px', background: '#fef2f2', color: '#dc2626' }}>
                 📅 Follow Up Due
+              </span>
+            )}
+            {fuChip && (
+              <span style={{ fontSize: '9.5px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px', background: fuChip.bg, color: fuChip.color }}>
+                ✉ {fuChip.label}
               </span>
             )}
           </div>
