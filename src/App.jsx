@@ -23,6 +23,7 @@ import ExpensesPage from './components/pages/ExpensesPage';
 import ReportsPage from './components/pages/ReportsPage';
 import ContactsPage from './components/pages/ContactsPage';
 import BroadcastPage from './components/pages/BroadcastPage';
+import SettingsPage from './components/pages/SettingsPage';
 import BookingPage from './components/BookingPage';
 
 function PageBody() {
@@ -43,6 +44,7 @@ function PageBody() {
     case 'reports':         return <ReportsPage />;
     case 'contacts':        return <ContactsPage />;
     case 'broadcast':       return <BroadcastPage />;
+    case 'settings':        return <SettingsPage />;
     case 'leads':
     default:                return <LeadsPage />;
   }
