@@ -82,4 +82,53 @@ async function getFacebookLeadIds() {
   return (r.data || []).map(x => x.fb_lead_id).filter(Boolean);
 }
 
-module.exports = { USE_SUPABASE, getLeadById, updateLead, nextInvoiceNumber, createBooking, fetchActiveBookings, findLead, createLead, getLeadsForContext, getFacebookLeadIds };
+// ── Quote follow-ups (followup.js). Raw snake_case rows — no field-name mapping.
+const QUOTE_SENT = encodeURIComponent('Quote Sent');
+
+async function getFollowupSettings() {
+  try {
+    const r = await axios.get(`${URL()}/rest/v1/followup_settings?id=eq.1&select=*`, { headers: H() });
+    return r.data[0] || null;
+  } catch (err) {
+    if (err.response?.status === 404) return null; // table not created on this branch yet
+    throw err;
+  }
+}
+
+async function fetchDueFollowups({ nowIso, testOnly, limit }) {
+  let q = `leads?followup_status=eq.active&lead_status=eq.${QUOTE_SENT}&followup_next_at=lte.${encodeURIComponent(nowIso)}`
+    + '&select=id,client_name,email,quote_amount,quote_sent_at,followup_step,followup_fail_count'
+    + `&order=followup_next_at.asc&limit=${limit}`;
+  if (testOnly) q += '&client_name=ilike.test*'; // test mode: held real leads never crowd out TEST leads
+  const r = await axios.get(`${URL()}/rest/v1/${q}`, { headers: H() });
+  return r.data || [];
+}
+
+// Atomically take a due lead for this run by pushing next_at forward (a lease).
+// false = another run took it, or its state changed since it was selected.
+async function claimFollowup(id, step, now, leaseMin) {
+  const q = `leads?id=eq.${id}&followup_status=eq.active&followup_step=eq.${step}&lead_status=eq.${QUOTE_SENT}`
+    + `&followup_next_at=lte.${encodeURIComponent(now.toISOString())}`;
+  const lease = new Date(now.getTime() + leaseMin * 60000).toISOString();
+  const r = await axios.patch(`${URL()}/rest/v1/${q}`, { followup_next_at: lease },
+    { headers: { ...H(), Prefer: 'return=representation' } });
+  return Array.isArray(r.data) && r.data.length === 1;
+}
+
+// Apply a follow-up state change ONLY while the lead is still active + in Quote
+// Sent — a status the owner set mid-run (e.g. Booked) is never overwritten.
+async function updateActiveFollowup(id, cols) {
+  const q = `leads?id=eq.${id}&followup_status=eq.active&lead_status=eq.${QUOTE_SENT}`;
+  const r = await axios.patch(`${URL()}/rest/v1/${q}`, cols, { headers: { ...H(), Prefer: 'return=representation' } });
+  return Array.isArray(r.data) && r.data.length === 1;
+}
+
+async function insertFollowupLog(row) {
+  await axios.post(`${URL()}/rest/v1/followup_log`, row, { headers: H() });
+}
+
+module.exports = {
+  USE_SUPABASE, getLeadById, updateLead, nextInvoiceNumber, createBooking, fetchActiveBookings, findLead, createLead,
+  getLeadsForContext, getFacebookLeadIds,
+  getFollowupSettings, fetchDueFollowups, claimFollowup, updateActiveFollowup, insertFollowupLog,
+};

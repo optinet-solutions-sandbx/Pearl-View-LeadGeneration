@@ -3,6 +3,7 @@ const axios = require('axios');
 const sb = require('./sb');
 const { BUSINESS, DASHBOARD_URL, TZ } = require('./config');
 const { syncContactToList } = require('./mobilemessage');
+const { isFollowupMessage } = require('./followup-core');
 
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
 const AIRTABLE_TOKEN = process.env.AIRTABLE_TOKEN;
@@ -458,6 +459,14 @@ async function extractFormLeads({ notify = true } = {}) {
       // filter in the query should exclude them, but Gmail matching is fuzzy).
       if (/^\s*new (facebook|instagram) lead:/i.test(subject)) {
         console.log(`[email-extractor] Skipping own FB/IG notification email: ${subject}`);
+        continue;
+      }
+      // Never ingest our own quote follow-up emails: they're From service@… which
+      // FORM_GMAIL_MATCH's `from:pearlview.com.au` would otherwise match. Label
+      // them so they aren't re-fetched (and crowd out real leads) every run.
+      if (isFollowupMessage(message.payload?.headers)) {
+        console.log(`[email-extractor] Skipping own follow-up email: ${subject}`);
+        await applyLabel(gmail, message.id, labelId);
         continue;
       }
       const from = (message.payload?.headers || []).find(h => h.name.toLowerCase() === 'from')?.value || '';

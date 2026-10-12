@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useLeads } from '../hooks/useLeads';
 import { updateRecord, AT_TABLES } from '../utils/airtableSync';
+import { USE_SUPABASE, fetchFollowupSettings } from '../utils/supabaseClient';
 
 const LeadsContext = createContext(null);
 
@@ -15,7 +16,16 @@ export function LeadsProvider({ children, technician = false }) {
     addCalBooking, removeCalBooking, updateCalBooking, recordBookingPayment,
     deletePayment, syncToClients, upsertClient, syncClientsFromLeads, updateClient,
     archivedClients, archiveClient, restoreClient, permanentDeleteClient,
+    startFollowups, stopFollowups,
   } = useLeads(technician);
+
+  // Quote follow-up settings (owner + Supabase only). null = not set up on this
+  // branch / technician → all follow-up UI stays hidden.
+  const [followupSettings, setFollowupSettings] = useState(null);
+  useEffect(() => {
+    if (readOnly || !USE_SUPABASE) return;
+    fetchFollowupSettings().then(setFollowupSettings);
+  }, [readOnly]);
 
   const [activeId, setActiveId]       = useState(null);
   const [searchTerm, setSearchTerm]   = useState('');
@@ -467,6 +477,10 @@ export function LeadsProvider({ children, technician = false }) {
       archiveClient,
       restoreClient,
       permanentDeleteClient,
+      followupSettings,
+      setFollowupSettings,
+      startFollowups,
+      stopFollowups,
       refetch: fetchLeads,
     }}>
       {children}

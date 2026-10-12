@@ -2563,20 +2563,27 @@ In prod Settings: follow-ups **ON**, test mode **ON**, test email = John's addre
 | Lead | Email | Action | Expected |
 |---|---|---|---|
 | `TEST Full Run` | any (e.g. `fullrun@example.com`) | wait | FU1/FU2/FU3 arrive at the test inbox ~hourly (subject `[TEST → fullrun@example.com] …`), then lead → Refused "No Response to Follow-ups" |
-| `TEST Reply` | an address the user controls | after FU1, reply from that address **to service@pearlview.com.au** | status Replied, chip `Replied`, owner WhatsApp alert, no FU2 |
+| `TEST Reply` | an address the user controls (the lead's email must be the exact address you reply FROM) | after FU1, reply to the follow-up from that address (it goes to service@pearlview.com.au via Reply-To) | status Replied, chip `Replied`, owner WhatsApp alert, no FU2 |
 | `TEST Booked` | any | after FU1, move to Booked | panel "Follow-ups stopped (status changed)", no FU2 |
 | `TEST Manual` | any | click Stop | `FU stopped`, nothing further |
 | `TEST No Email` | none | add an email later | `No email` chip, nothing sent → becomes active after email added |
+
+Any real lead quoted while the feature is ON during this run is enrolled with the step-1 delay in force at that moment (1 h) and held. Step 9 must rebase them before test mode goes OFF.
 
 Any real lead quoted meanwhile must receive nothing: its card shows `✉ Held` and its panel says "Held — test mode is on…". (The job doesn't even fetch it — in test mode it only selects `TEST…` leads.)
 
 - [ ] **Step 8: Extractor-guard live check**
 
-Temporarily set the test email to `service@pearlview.com.au`, create `TEST Guard` (any email) → wait for FU1 to land in the service@ inbox → run `curl -s -X POST "<service>/extract-emails?notify=false"` → Cloud Run logs show `Skipping own follow-up email`, and no new lead appears. Set the test email back to John's.
+Temporarily set the test email to `service@pearlview.com.au`, create `TEST Guard` (any email) → wait for FU1 to land in the service@ inbox → run `curl -s -X POST "<service>/extract-emails?notify=false"` → Cloud Run logs show `Skipping own follow-up email`, and no new lead appears (`-in:sent` was dropped from the form query, so the header guard alone is what is being verified). Set the test email back to John's.
 
 - [ ] **Step 9: Go live**
 
-Delete all `TEST …` leads; set delays back to **2 / 3 / 5 days**; turn **test mode OFF**; Save. Tick PMS `"Dummy-lead acceptance"`; move the PMS task to Done:
+First rebase any real leads held during the test run (Supabase SQL Editor, or service-role REST); 48 h = the restored step-1 delay:
+```sql
+update leads set followup_next_at = greatest(followup_next_at, quote_sent_at + interval '48 hours')
+where followup_status = 'active' and followup_step = 0 and client_name not ilike 'test%';
+```
+Then delete all `TEST …` leads; set delays back to **2 / 3 / 5 days**; turn **test mode OFF**; Save. Tick PMS `"Dummy-lead acceptance"`; move the PMS task to Done:
 ```bash
 node --env-file=.env -e "fetch(process.env.PMS_BASE_URL+'/api/tasks/cmv15gvlc002n04l53rm9rcr2/move',{method:'PATCH',headers:{Authorization:'Bearer '+process.env.PMS_API_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({columnId:'cmq5b01vp000604jm34ltg2iz',position:0})}).then(r=>console.log(r.status))"
 ```

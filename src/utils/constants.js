@@ -58,6 +58,7 @@ export const REFUSE_LABELS = {
   too_expensive: 'Too Expensive',
   competition:   'Competition',
   no_answer:     'No Answer',
+  no_response:   'No Response to Follow-ups',
   other:         'Other',
 };
 

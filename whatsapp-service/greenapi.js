@@ -65,4 +65,16 @@ async function sendLeadNotification(to, lead) {
   return response.data;
 }
 
-module.exports = { sendLeadNotification, buildLeadMessage, getInstanceState };
+// Plain text to one WhatsApp number (E.164 digits, no +). Used for owner alerts
+// that aren't lead notifications (e.g. a customer replied to a quote follow-up).
+async function sendText(to, message) {
+  const idInstance = process.env.GREENAPI_INSTANCE_ID;
+  const apiToken = process.env.GREENAPI_TOKEN;
+  if (!idInstance || !apiToken) throw new Error('GREENAPI_INSTANCE_ID or GREENAPI_TOKEN not set');
+  const url = `${BASE_URL}/waInstance${idInstance}/sendMessage/${apiToken}`;
+  const r = await axios.post(url, { chatId: `${to}@c.us`, message, linkPreview: false },
+    { headers: { 'Content-Type': 'application/json' } });
+  return r.data;
+}
+
+module.exports = { sendLeadNotification, buildLeadMessage, getInstanceState, sendText };

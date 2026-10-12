@@ -9,6 +9,7 @@ const { generateReply } = require('./ai');
 const { sendInvoiceForLead } = require('./invoice');
 const { createRebooking, getBookInfo } = require('./booking');
 const { bookingPageHtml } = require('./booking-page');
+const { runFollowups } = require('./followup');
 const { TZ } = require('./config');
 
 const app = express();
@@ -319,6 +320,22 @@ app.post('/extract-emails', async (req, res) => {
     res.json({ success: true, result });
   } catch (err) {
     console.error('[ALERT] 🚨 Email extraction failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Quote follow-ups (Cloud Scheduler, every 15 min) ────────────────────────
+// Emails customers, so unlike /extract-emails it is secret-protected.
+// ?dry=true → returns the planned actions without sending or writing anything.
+app.post('/run-followups', async (req, res) => {
+  if (!process.env.CRON_SECRET || req.get('x-cron-secret') !== process.env.CRON_SECRET) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  try {
+    const result = await runFollowups({ dry: req.query.dry === 'true' });
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error('[ALERT] 🚨 Follow-up run failed:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

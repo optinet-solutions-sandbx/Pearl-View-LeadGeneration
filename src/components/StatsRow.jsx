@@ -80,12 +80,13 @@ export default function StatsRow() {
   const refusedLeads = leads.filter(l => l.status === 'refused');
 
   // Refuse reason breakdown subtitle
-  const rc = { too_expensive: 0, competition: 0, no_answer: 0, other: 0 };
+  const rc = { too_expensive: 0, competition: 0, no_answer: 0, no_response: 0, other: 0 };
   refusedLeads.forEach(l => { if (l.refuseReason && rc[l.refuseReason] !== undefined) rc[l.refuseReason]++; });
   const refuseParts = [];
   if (rc.too_expensive) refuseParts.push(`${rc.too_expensive} expensive`);
   if (rc.competition)   refuseParts.push(`${rc.competition} competition`);
   if (rc.no_answer)     refuseParts.push(`${rc.no_answer} no answer`);
+  if (rc.no_response)   refuseParts.push(`${rc.no_response} no response`);
   if (rc.other)         refuseParts.push(`${rc.other} other`);
   const refusedSub = refuseParts.length ? refuseParts.join(' · ') : 'Declined leads';
 

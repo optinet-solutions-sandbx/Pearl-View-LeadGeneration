@@ -3,6 +3,7 @@ import { useLeadsContext } from '../context/LeadsContext';
 import { formatDate, formatLeadSource } from '../utils/dateUtils';
 import { overlayClose } from '../utils/overlayClose';
 import { REFUSE_LABELS } from '../utils/constants';
+import FollowupSection from './FollowupSection';
 
 
 function PaymentModal({ leadName, initAmount, initMethod, onSubmit, onClose, saving }) {
@@ -398,7 +399,7 @@ export default function DetailPanel() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
               {Object.entries(REFUSE_LABELS).map(([key, label]) => {
                 const active = l.refuseReason === key;
-                const emoji = key === 'too_expensive' ? '💰 ' : key === 'competition' ? '🏆 ' : key === 'no_answer' ? '📵 ' : '❓ ';
+                const emoji = key === 'too_expensive' ? '💰 ' : key === 'competition' ? '🏆 ' : key === 'no_answer' ? '📵 ' : key === 'no_response' ? '📭 ' : '❓ ';
                 return (
                   <button key={key} onClick={() => setRefuseReason(l.id, key)} style={{ padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: `1.5px solid ${active ? '#dc2626' : 'var(--gray-200)'}`, background: active ? '#fee2e2' : '#fff', color: active ? '#991b1b' : 'var(--gray-600)' }}>
                     {emoji}{label}
@@ -526,6 +527,9 @@ export default function DetailPanel() {
           ) : null)}
           <div className="jrow"><span className="jlbl">Lead Source</span>{srcTag}</div>
         </div>
+
+        {/* Quote follow-ups (owner only; renders nothing unless relevant) */}
+        {!readOnly && <FollowupSection lead={l} />}
 
         {/* Payment (owner only — money is hidden for read-only technicians) */}
         {!readOnly && (
