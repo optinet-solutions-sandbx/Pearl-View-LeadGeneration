@@ -9,6 +9,8 @@
 // public posture where the Airtable token already ships in the bundle). Locked
 // down with RLS + auth in Phase 7. Record id = Supabase UUID (writes target it).
 
+import { fetchAllPages } from './fetchAllPages';
+
 const SB_URL = import.meta.env.VITE_SUPABASE_URL;
 const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const USE_SUPABASE = import.meta.env.VITE_USE_SUPABASE === 'true';
@@ -172,6 +174,13 @@ export async function sbSelect(path) {
   return r.json();
 }
 
+// Full-table read: pages past the server's per-request row cap (max_rows).
+// Ordered by id so pages don't overlap or skip rows.
+export function sbSelectAll(path) {
+  const sep = path.includes('?') ? '&' : '?';
+  return fetchAllPages((offset, limit) => sbSelect(`${path}${sep}order=id.asc&limit=${limit}&offset=${offset}`));
+}
+
 // Read the logged-in user's own profile row (role gate: owner vs technician).
 // RLS lets a user read their own row. Returns null if unauthed / no profile /
 // the profiles table doesn't exist yet (pre-migration) — callers treat null as
@@ -246,7 +255,7 @@ export async function sbDelete(tableId, recordId) {
 export async function sbFetch(tableId) {
   const reg = REG[tableId]; if (!reg) return [];
   try {
-    const rows = await sbSelect(`${reg.sb}?select=*`);
+    const rows = await sbSelectAll(`${reg.sb}?select=*`);
     return rows.map(row => ({ id: row.id, fields: toFields(reg, row) }));
   } catch (e) { console.error('sbFetch error', tableId, e); return []; }
 }

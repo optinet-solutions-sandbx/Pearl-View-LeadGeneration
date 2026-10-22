@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { STATUS_MAP, AT_STATUS_MAP, PROG_MAP } from '../utils/constants';
 import { parseDate } from '../utils/dateUtils';
 import { createRecord, updateRecord, deleteRecord, fetchRecords, AT_TABLES } from '../utils/airtableSync';
-import { USE_SUPABASE, sbSelect, sbCreate, sbPatchLead, sbLeadRowToRecord, sbBookingRowToRecord, sbClientRowToRecord } from '../utils/supabaseClient';
+import { USE_SUPABASE, sbSelectAll, sbCreate, sbPatchLead, sbLeadRowToRecord, sbBookingRowToRecord, sbClientRowToRecord } from '../utils/supabaseClient';
 import { followupStartPatch } from '../utils/followupTemplate';
 
 const VALID_JOB_TYPES = new Set(['Window Cleaning', 'Pressure Washing', 'Solar Panel', 'Other']);
@@ -295,9 +295,9 @@ export function useLeads(technician = false) {
         // column-limited `tech_leads` view (Quote Sent/Booked/Job Done, NO money)
         // as leads; bookings are RLS-scoped to their own jobs; no clients.
         const [leadRows, bookingRows, clientRows] = await Promise.all([
-          sbSelect(technician ? 'tech_leads?select=*' : 'leads_enriched?select=*'),
-          sbSelect('bookings?select=*'),
-          technician ? Promise.resolve([]) : sbSelect('clients?select=*'),
+          sbSelectAll(technician ? 'tech_leads?select=*' : 'leads_enriched?select=*'),
+          sbSelectAll('bookings?select=*'),
+          technician ? Promise.resolve([]) : sbSelectAll('clients?select=*'),
         ]);
         const all = leadRows.map(row => {
           const lead = normaliseRecord(sbLeadRowToRecord(row));
