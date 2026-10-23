@@ -10,6 +10,7 @@ const { sendInvoiceForLead } = require('./invoice');
 const { createRebooking, getBookInfo } = require('./booking');
 const { bookingPageHtml } = require('./booking-page');
 const { runFollowups } = require('./followup');
+const { runCalendarSync } = require('./calendar-sync');
 const { TZ } = require('./config');
 
 const app = express();
@@ -336,6 +337,22 @@ app.post('/run-followups', async (req, res) => {
     res.json({ success: true, result });
   } catch (err) {
     console.error('[ALERT] 🚨 Follow-up run failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Cloud Scheduler → creates/updates/cancels Google Calendar invitations for flagged bookings.
+// Emails customers (via Google), so secret-protected like /run-followups.
+// ?dry=true → plan only; ?probe=true → just checks the Google Calendar credentials.
+app.post('/run-calendar-sync', async (req, res) => {
+  if (!process.env.CRON_SECRET || req.get('x-cron-secret') !== process.env.CRON_SECRET) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  try {
+    const result = await runCalendarSync({ dry: req.query.dry === 'true', probe: req.query.probe === 'true' });
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error('[ALERT] 🚨 Calendar sync run failed:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

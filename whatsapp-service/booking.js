@@ -10,7 +10,8 @@
  */
 const { google } = require('googleapis');
 const axios = require('axios');
-const { BUSINESS, BRAND_NAME, BRAND_SHORT } = require('./config');
+const { BUSINESS, BRAND_NAME, BRAND_SHORT, TZ } = require('./config');
+const { buildEvent, eventIdFor, parseJobTime } = require('./calendar-core');
 const { verifyToken } = require('./token');
 const sb = require('./sb');
 
@@ -45,6 +46,14 @@ async function createBooking(fields) {
 
 // All non-cancelled bookings, normalised → used for one-per-day availability and
 // single-use enforcement. Paginated.
+// Best-effort post-create update of a booking (Supabase only; the new invite
+// columns don't exist on the Airtable path).
+async function updateBookingInvite(bookingId, fields) {
+  if (!sb.USE_SUPABASE) return;
+  try { await sb.updateBooking(bookingId, fields); }
+  catch (e) { console.error(`[ALERT] booking ${bookingId} invite state update failed (invite already sent):`, e?.message || e); }
+}
+
 async function fetchActiveBookings() {
   if (sb.USE_SUPABASE) return sb.fetchActiveBookings();
   const out = [];
@@ -145,27 +154,32 @@ function oauthClient() {
   return o;
 }
 
-async function createCalendarInvite({ clientName, email, svc, date, timeStr, address, city }) {
+// Pure: the Google Calendar requestBody for a self-rebooking (no network).
+function buildInviteBody({ clientName, email, svc, date, timeStr, address, city }) {
+  return buildEvent(
+    { client_name: clientName, date, job_time: parseJobTime(timeStr) || '09:00', job_service: svc, service_address: address, city },
+    { tz: TZ, brandShort: BRAND_SHORT, businessEmail: BUSINESS.email, businessPhone: BUSINESS.phone, attendee: email },
+  );
+}
+
+// Pure: the events.insert requestBody. The deterministic id only when Google accepts
+// it (base32hex) — an Airtable-rollback booking id ('rec…', has w-z) would be rejected,
+// so that path inserts without an id and Google assigns one.
+const GCAL_EVENT_ID = /^[a-v0-9]{5,1024}$/;
+function inviteRequestBody({ bookingId, clientName, email, svc, date, timeStr, address, city }) {
+  const id = eventIdFor(bookingId, 0);
+  return { ...(GCAL_EVENT_ID.test(id) ? { id } : {}), ...buildInviteBody({ clientName, email, svc, date, timeStr, address, city }) };
+}
+
+async function createCalendarInvite(args) {
   const cal = google.calendar({ version: 'v3', auth: oauthClient() });
-  const tz = process.env.REBOOK_TZ || 'Australia/Brisbane';
-  const [h, mi] = (timeStr || '09:00').split(':');
-  const hh = (h || '09').padStart(2, '0');
-  const mm = (mi || '00').slice(0, 2);
-  const endHh = String(Math.min(parseInt(hh, 10) + 1, 23)).padStart(2, '0');
-  const res = await cal.events.insert({
+  const requestBody = inviteRequestBody(args);
+  const r = await cal.events.insert({
     calendarId: 'primary',
     sendUpdates: 'all', // emails the attendee a real invite → auto-adds to their calendar
-    requestBody: {
-      summary: `${svc} — ${BRAND_SHORT}`,
-      description: `Your window clean with ${BRAND_SHORT}.\nService: ${svc}\nQuestions? ${BUSINESS.email}`,
-      location: address || city || '',
-      start: { dateTime: `${date}T${hh}:${mm}:00`, timeZone: tz },
-      end:   { dateTime: `${date}T${endHh}:${mm}:00`, timeZone: tz },
-      attendees: [{ email, displayName: clientName }],
-      reminders: { useDefault: true },
-    },
-  });
-  return res.data;
+    requestBody,
+  }, { timeout: 30000 });
+  return { id: r?.data?.id || requestBody.id };
 }
 
 // ── Gmail send (calendar invite) ──────────────────────────────────────────────
@@ -243,7 +257,7 @@ async function sendCalendarInvite({ to, subject, html, ics }) {
 function buildGcalUrl({ svc, date, timeStr, address, city }) {
   const start = icsLocal(date, timeStr);
   const end = addHourLocal(start);
-  const tz = process.env.REBOOK_TZ || 'Australia/Brisbane';
+  const tz = TZ;
   return 'https://calendar.google.com/calendar/render?action=TEMPLATE'
     + `&text=${encodeURIComponent(`${svc} — ${BRAND_SHORT}`)}`
     + `&dates=${start}/${end}`
@@ -296,6 +310,30 @@ function buildRebookEmail({ bookingId, clientName, email, svc, date, timeStr, ad
   return { subject: `Your window clean is booked — ${prettyDate}`, html, ics, prettyDate };
 }
 
+// Calendar invite first, .ics email as fallback; records the terminal invite
+// state on the booking. If BOTH paths fail the booking is marked 'failed' and the
+// original error is rethrown (client-facing behaviour unchanged). deps = test seam.
+async function sendInvite(args, deps = {}) {
+  const d = { createCalendarInvite, sendCalendarInvite, buildRebookEmail, updateBookingInvite, ...deps };
+  const { bookingId, clientName, email, svc, date, timeStr, address, city } = args;
+  try {
+    const ev = await d.createCalendarInvite(args);
+    await d.updateBookingInvite(bookingId, { 'Calendar Event Id': ev.id, 'Invite Status': 'sent', 'Invite Attendee': email });
+    return 'calendar';
+  } catch (e) {
+    console.error('Calendar invite failed, falling back to .ics email:', e?.message || e);
+    try {
+      const mail = d.buildRebookEmail({ bookingId, clientName, email, svc, date, timeStr, address, city });
+      await d.sendCalendarInvite({ to: email, subject: mail.subject, html: mail.html, ics: mail.ics });
+    } catch (e2) {
+      await d.updateBookingInvite(bookingId, { 'Invite Status': 'failed' });
+      throw e2;
+    }
+    await d.updateBookingInvite(bookingId, { 'Invite Status': 'emailed_ics' });
+    return 'ics';
+  }
+}
+
 /**
  * Orchestrate a client rebooking.
  * body: { t (signed token), date (YYYY-MM-DD), time? (HH:MM), service? }
@@ -339,6 +377,11 @@ async function createRebooking(body = {}) {
     'Date': date,
     'Booking Status': 'Scheduled',
     'Job Time': timeStr,
+    // Supabase only (the old Airtable Bookings table has none of these fields): the
+    // event's address (so a later sync keeps it) and the stable lead link.
+    ...(sb.USE_SUPABASE && address ? { 'Service Address': address } : {}),
+    ...(sb.USE_SUPABASE && lead?.id ? { 'Lead Id': lead.id } : {}),
+    ...(sb.USE_SUPABASE && email ? { 'Client Email': email, 'Invite Status': 'sending' } : {}),
   });
 
   // 2. Get it onto the client's calendar. PREFER a real Google Calendar invite
@@ -346,15 +389,8 @@ async function createRebooking(body = {}) {
   // scope, or Calendar API not enabled — fall back to mailing the .ics.
   let inviteSent = false, inviteMethod = null;
   if (email) {
-    try {
-      await createCalendarInvite({ clientName, email, svc, date, timeStr, address, city });
-      inviteSent = true; inviteMethod = 'calendar';
-    } catch (e) {
-      console.error('Calendar invite failed, falling back to .ics email:', e?.message || e);
-      const mail = buildRebookEmail({ bookingId, clientName, email, svc, date, timeStr, address, city });
-      await sendCalendarInvite({ to: email, subject: mail.subject, html: mail.html, ics: mail.ics });
-      inviteSent = true; inviteMethod = 'ics';
-    }
+    inviteMethod = await sendInvite({ bookingId, clientName, email, svc, date, timeStr, address, city });
+    inviteSent = true;
   }
 
   // Always return a one-tap "Add to Google Calendar" URL — the confirmation page
@@ -365,4 +401,4 @@ async function createRebooking(body = {}) {
   return { success: true, bookingId, inviteSent, inviteMethod, gcalUrl, date, time: timeStr, clientName };
 }
 
-module.exports = { createRebooking, getBookInfo, createBooking, generateIcs, icsLocal, sendCalendarInvite, buildRebookEmail };
+module.exports = { sendInvite, buildInviteBody, inviteRequestBody, buildGcalUrl, oauthClient, createRebooking, getBookInfo, createBooking, generateIcs, icsLocal, sendCalendarInvite, buildRebookEmail };

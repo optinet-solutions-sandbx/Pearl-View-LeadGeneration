@@ -6,12 +6,14 @@ const norm   = s => String(s || '').trim().toLowerCase();
 
 // Find the record (booking or revenue) linked to a lead. lead_id wins; then
 // phone (digits); then Client Name — but name ONLY when the lead has no phone,
-// so a different same-named lead never matches.
+// so a different same-named lead never matches. When the caller names its lead,
+// a record already linked to a DIFFERENT lead is never claimed by phone/name.
 export function findLinked(records, { leadId, phone, name }) {
-  const list = records || [];
+  let list = records || [];
   if (leadId) {
     const byId = list.find(r => r.leadId && r.leadId === leadId);
     if (byId) return byId;
+    list = list.filter(r => !r.leadId);
   }
   const ph = digits(phone);
   if (ph) return list.find(r => digits(r.phone) === ph) || null;

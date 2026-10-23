@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useLeadsContext } from '../context/LeadsContext';
 import { overlayClose } from '../utils/overlayClose';
+import { timeRequired } from '../utils/inviteRules';
 
 // Native time input — converts between "9:00 AM" display format and HH:MM input value
 function TimePicker({ value, onChange }) {
@@ -36,7 +37,7 @@ function TimePicker({ value, onChange }) {
 }
 
 export default function BookModal() {
-  const { bookModalId, confirmBook, closeBookModal, leads } = useLeadsContext();
+  const { bookModalId, confirmBook, closeBookModal, leads, inviteSettings } = useLeadsContext();
 
   const [date,   setDate]   = useState(new Date().toISOString().slice(0, 10));
   const [time,   setTime]   = useState('');
@@ -50,12 +51,16 @@ export default function BookModal() {
 
   function handleSubmit() {
     if (!date) { setErr('Please select a date'); return; }
+    const timeErr = timeRequired(lead?.email, time, inviteSettings);
+    if (timeErr) { setErr(timeErr); return; }
     setErr('');
     confirmBook({ date, jobTime: time, worker, amount: parseFloat(amount) || 0, paymentMethod: method });
   }
 
   const lbl = { fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--gray-500)', marginBottom: '6px', display: 'block' };
   const hasAmount = parseFloat(amount) > 0;
+  // The client gets a calendar invitation (invites on + an email), so the time is required.
+  const hasEmail = !!lead?.email && !!timeRequired(lead.email, '', inviteSettings);
 
   return (
     <div
@@ -84,7 +89,7 @@ export default function BookModal() {
           </div>
 
           <div>
-            <label style={lbl}>Job Time (optional)</label>
+            <label style={lbl}>{hasEmail ? <>Job Time <span style={{ color: '#dc2626' }}>*</span></> : 'Job Time (optional)'}</label>
             <TimePicker value={time} onChange={setTime} />
           </div>
 

@@ -28,6 +28,7 @@ const BOOKING_COLS = {
   'Lead Id': 'lead_id',
   'Assigned Worker Id': 'assigned_worker_id', 'Tech Notes': 'tech_notes',
   'Service Address': 'service_address', 'Tech Completed At': 'tech_completed_at',
+  'Client Email': 'client_email', 'Calendar Event Id': 'gcal_event_id', 'Invite Status': 'gcal_status', 'Invite Attendee': 'gcal_attendee',
 };
 const toCols = (map, fields) => { const o = {}; for (const [k, v] of Object.entries(fields || {})) if (map[k]) o[map[k]] = v; return o; };
 const leadRowToFields = row => {
@@ -52,6 +53,9 @@ async function createBooking(fields) {
   const r = await axios.post(`${URL()}/rest/v1/bookings`, toCols(BOOKING_COLS, fields),
     { headers: { ...H(), Prefer: 'return=representation' } });
   return r.data[0]?.id;
+}
+async function updateBooking(id, fields) {
+  await axios.patch(`${URL()}/rest/v1/bookings?id=eq.${id}`, toCols(BOOKING_COLS, fields), { headers: H() });
 }
 async function fetchActiveBookings() {
   const r = await axios.get(`${URL()}/rest/v1/bookings?select=date,client_name,phone,booking_status`, { headers: H() });
@@ -127,8 +131,60 @@ async function insertFollowupLog(row) {
   await axios.post(`${URL()}/rest/v1/followup_log`, row, { headers: H() });
 }
 
+// ── Calendar invitations (calendar-sync.js). Raw snake_case rows.
+async function getCalendarInviteSettings() {
+  try {
+    const r = await axios.get(`${URL()}/rest/v1/calendar_invite_settings?id=eq.1&select=*`, { headers: H() });
+    return r.data[0] || null;
+  } catch (err) {
+    if (err.response?.status === 404) return null; // table not created yet
+    throw err;
+  }
+}
+
+async function fetchBookingsToSync({ nowIso, testOnly = false, limit = 25 }) {
+  // Test mode: only TEST-named rows or rows that already have an event, so held
+  // real bookings never crowd the batch.
+  const due = `or(gcal_next_at.is.null,gcal_next_at.lte.${encodeURIComponent(nowIso)})`;
+  const filter = testOnly ? `&and=(${due},or(client_name.ilike.test*,gcal_event_id.not.is.null))` : `&${due.replace('or(', 'or=(')}`;
+  const q = 'bookings?gcal_sync_needed=eq.true'
+    + filter
+    + '&select=id,client_name,client_email,date,job_time,booking_status,job_service,service_address,city,'
+    + 'gcal_event_id,gcal_status,gcal_attendee,gcal_sync_needed,gcal_rev,gcal_fail_count,gcal_next_at'
+    + `&order=gcal_next_at.asc.nullsfirst&limit=${limit}`;
+  const r = await axios.get(`${URL()}/rest/v1/${q}`, { headers: H() });
+  return r.data || [];
+}
+
+// Lease a flagged booking for this run (pushes gcal_next_at forward). false = taken
+// by another run, or the booking changed (gcal_rev) / was unflagged since selected.
+async function claimBookingSync(id, rev, now, leaseMin) {
+  const q = `bookings?id=eq.${id}&gcal_rev=eq.${rev}&gcal_sync_needed=eq.true`
+    + `&or=(gcal_next_at.is.null,gcal_next_at.lte.${encodeURIComponent(now.toISOString())})`;
+  const lease = new Date(now.getTime() + leaseMin * 60000).toISOString();
+  const r = await axios.patch(`${URL()}/rest/v1/${q}`, { gcal_next_at: lease },
+    { headers: { ...H(), Prefer: 'return=representation' } });
+  return Array.isArray(r.data) && r.data.length === 1;
+}
+
+// Record a just-created Google event on the booking, filtered by id ONLY (no rev
+// guard) so an edit made mid-sync can't lose it. Touches only gcal_* columns, so
+// the bookings_gcal_mark trigger never re-flags; service_role passes the tech guard.
+async function recordBookingEvent(id, eventId, attendee) {
+  await axios.patch(`${URL()}/rest/v1/bookings?id=eq.${id}`, { gcal_event_id: eventId, gcal_attendee: attendee }, { headers: H() });
+}
+
+// Write the sync result ONLY if the booking is still at the revision we synced;
+// false = the office edited it mid-sync, so it stays flagged for the next run.
+async function finishBookingSync(id, rev, patch) {
+  const q = `bookings?id=eq.${id}&gcal_rev=eq.${rev}`;
+  const r = await axios.patch(`${URL()}/rest/v1/${q}`, patch, { headers: { ...H(), Prefer: 'return=representation' } });
+  return Array.isArray(r.data) && r.data.length === 1;
+}
+
 module.exports = {
-  USE_SUPABASE, getLeadById, updateLead, nextInvoiceNumber, createBooking, fetchActiveBookings, findLead, createLead,
+  getCalendarInviteSettings, fetchBookingsToSync, claimBookingSync, recordBookingEvent, finishBookingSync,
+  USE_SUPABASE, getLeadById, updateLead, nextInvoiceNumber, createBooking, updateBooking, fetchActiveBookings, findLead, createLead,
   getLeadsForContext, getFacebookLeadIds,
   getFollowupSettings, fetchDueFollowups, claimFollowup, updateActiveFollowup, insertFollowupLog,
 };
