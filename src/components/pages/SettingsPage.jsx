@@ -3,7 +3,7 @@
 // The preview uses the same template rules as the sender (followupTemplate.js).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLeadsContext } from '../../context/LeadsContext';
-import { USE_SUPABASE, saveFollowupSettings, countActiveFollowups } from '../../utils/supabaseClient';
+import { USE_SUPABASE, saveFollowupSettings, saveInviteSettings, countActiveFollowups } from '../../utils/supabaseClient';
 import { DEFAULT_STEPS, PLACEHOLDERS, STEP_WAIT_LABELS, renderTemplate, sampleContext, validateSettings } from '../../utils/followupTemplate';
 
 const card  = { background: '#fff', border: '1.5px solid var(--gray-200)', borderRadius: '10px', padding: '16px', marginBottom: '12px' };
@@ -90,6 +90,112 @@ function StepCard({ index, step, ctx, onChange }) {
   );
 }
 
+function InviteCard() {
+  const { inviteSettings, setInviteSettings, showToast } = useLeadsContext();
+  const [draft, setDraft] = useState(inviteSettings);
+  const [errors, setErrors] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setDraft(inviteSettings); setErrors([]); }, [inviteSettings]);
+
+  const heading = (
+    <div style={{ margin: '24px 0 16px' }}>
+      <div style={{ fontSize: '17px', fontWeight: 700, color: 'var(--gray-900)' }}>Calendar invitations</div>
+      <div style={{ fontSize: '13px', color: 'var(--gray-500)', marginTop: '2px' }}>
+        Email clients a calendar invitation when a booking is made.
+      </div>
+    </div>
+  );
+
+  if (!USE_SUPABASE || !draft) {
+    return (
+      <>
+        {heading}
+        <div style={card}><div style={{ fontSize: '14px', color: 'var(--gray-600)' }}>Calendar invitations aren't set up for this branch yet.</div></div>
+      </>
+    );
+  }
+
+  const dirty = JSON.stringify(draft) !== JSON.stringify(inviteSettings);
+  const canSave = dirty && !saving;
+  const set = patch => setDraft(d => ({ ...d, ...patch }));
+
+  async function save() {
+    // Reuse the follow-up email rule: validateSettings with its other fields made valid.
+    const errs = validateSettings({ test_mode: draft.test_mode, test_email: draft.test_email, sender_name: 'x', window_start_hour: 0, window_end_hour: 24, steps: [] })
+      .filter(m => m === 'Test mode needs a valid test email address.');
+    setErrors(errs);
+    if (errs.length) return;
+    setSaving(true);
+    try {
+      const { id, updated_at, ...patch } = draft;
+      const saved = await saveInviteSettings(patch);
+      if (saved) {
+        setInviteSettings(saved);
+        showToast('Invitation settings saved');
+      } else {
+        showToast('Save failed — not saved (are you logged in as the owner?)');
+      }
+    } catch (e) {
+      showToast(`Save failed — ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      {heading}
+      <div style={card}>
+        <div style={row}>
+          <div>
+            <div style={title}>Calendar invitations</div>
+            <div style={{ fontSize: '12.5px', color: 'var(--gray-500)', marginTop: '2px' }}>
+              {draft.enabled ? 'On — new bookings get a calendar invitation' : 'Off — no invitations are sent'}
+            </div>
+          </div>
+          <Toggle on={draft.enabled} onChange={v => set({ enabled: v })} label="Calendar invitations on/off" />
+        </div>
+      </div>
+
+      <div style={{ ...card, ...(draft.test_mode ? { background: '#fffbeb', borderColor: '#fde68a' } : {}) }}>
+        <div style={row}>
+          <div>
+            <div style={title}>Test mode</div>
+            <div style={{ fontSize: '12.5px', color: draft.test_mode ? '#92400e' : 'var(--gray-500)', marginTop: '2px' }}>
+              {draft.test_mode
+                ? 'Invitations go only to the test address below, never to real clients.'
+                : 'Off — invitations go to real clients.'}
+            </div>
+          </div>
+          <Toggle on={draft.test_mode} onChange={v => set({ test_mode: v })} label="Invitation test mode on/off" />
+        </div>
+        {draft.test_mode && (
+          <div style={{ marginTop: '12px' }}>
+            <label style={lbl}>Send test invitations to</label>
+            <input type="email" value={draft.test_email || ''} placeholder="you@example.com" onChange={e => set({ test_email: e.target.value })} style={field} />
+          </div>
+        )}
+      </div>
+
+      {errors.length > 0 && (
+        <div style={{ ...card, background: '#fef2f2', borderColor: '#fecaca', color: '#b91c1c', fontSize: '13px' }}>
+          {errors.map(e => <div key={e}>• {e}</div>)}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '24px' }}>
+        <button
+          onClick={save} disabled={!canSave}
+          style={{ flex: '1 1 200px', minHeight: '44px', background: canSave ? 'var(--primary)' : '#9ca3af', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: 700, cursor: canSave ? 'pointer' : 'default', fontFamily: 'inherit' }}
+        >
+          {saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
+        </button>
+      </div>
+    </>
+  );
+}
+
 export default function SettingsPage() {
   const { followupSettings, setFollowupSettings, showToast } = useLeadsContext();
   const [draft, setDraft] = useState(followupSettings);
@@ -117,6 +223,7 @@ export default function SettingsPage() {
       <div className="page">
         {header}
         <div style={card}><div style={{ fontSize: '14px', color: 'var(--gray-600)' }}>Follow-ups aren't set up for this branch yet.</div></div>
+        <InviteCard />
       </div>
     );
   }
@@ -232,6 +339,8 @@ export default function SettingsPage() {
           Reset to default scripts
         </button>
       </div>
+
+      <InviteCard />
     </div>
   );
 }
