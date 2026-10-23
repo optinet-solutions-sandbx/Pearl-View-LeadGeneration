@@ -2,11 +2,15 @@
 -- Run ONCE in the Supabase SQL editor (NSW project zagmrxxmhyprhnhucqpo). Safe to re-run.
 -- Ships OFF (enabled=false) and in test mode. Then verify:
 --   node --env-file=.env execution/test_calendar_trigger.mjs
+-- Run the verifier BEFORE the pearl-view-calendar-sync scheduler job exists (the job would race the TEST rows).
+-- The Perth branch needs this SQL before its Cloud Run deploy.
+-- Emergency disable: execution/supabase_calendar_invites_rollback.sql
 begin;
 set local lock_timeout = '5s';  -- don't queue dashboard writes behind a long ALTER
 
 -- 1. invite state on each booking
 alter table bookings
+  add column if not exists service_address   text,  -- also added by supabase_technician_rls.sql; keeps this file self-contained
   add column if not exists client_email      text,
   add column if not exists gcal_event_id     text,
   add column if not exists gcal_status       text,
@@ -68,8 +72,9 @@ begin
     return new;
   end if;
 
-  -- UPDATE: legacy rows are never flagged
-  if old.gcal_status is not distinct from 'legacy' then
+  -- UPDATE: legacy rows are never flagged; neither are 'emailed_ics' rows (the client
+  -- already holds an .ics entry from the self-rebook email — syncing would add a 2nd event)
+  if old.gcal_status in ('legacy', 'emailed_ics') then
     return new;
   end if;
 
@@ -93,5 +98,34 @@ $fn$;
 drop trigger if exists bookings_gcal_mark on bookings;
 create trigger bookings_gcal_mark before insert or update on bookings
   for each row execute function bookings_gcal_mark();
+
+-- 5. technician column guard — the existing guard is a deny-list, so the new invite
+--    columns must be added to its protected tuple (otherwise a technician could set
+--    client_email to redirect an invitation, or gcal_status='legacy' to silence it).
+--    Body copied verbatim from supabase_technician_rls.sql, plus client_email,
+--    gcal_event_id, gcal_status, gcal_attendee, gcal_synced_at.
+--    DELIBERATELY NOT protected: gcal_sync_needed, gcal_rev, gcal_fail_count, gcal_next_at —
+--    bookings_gcal_mark (fires first: 'g' < 't') sets exactly those when a technician
+--    marks a job done (booking_status change), and the guard must not reject that.
+--    A technician Mark Done changes only booking_status/tech_notes/tech_completed_at, none
+--    of which is in the tuple, and the gcal trigger never touches the protected gcal_* columns on UPDATE.
+create or replace function bookings_tech_guard() returns trigger
+  language plpgsql security definer as $$
+begin
+  if auth.uid() is not null and not is_owner() then
+    if (new.booking_name, new.client_name, new.phone, new.city, new.job_service,
+        new.date, new.amount, new.job_time, new.assigned_worker, new.upsell_amount,
+        new.upsell_notes, new.lead_id, new.assigned_worker_id, new.service_address,
+        new.client_email, new.gcal_event_id, new.gcal_status, new.gcal_attendee, new.gcal_synced_at)
+       is distinct from
+       (old.booking_name, old.client_name, old.phone, old.city, old.job_service,
+        old.date, old.amount, old.job_time, old.assigned_worker, old.upsell_amount,
+        old.upsell_notes, old.lead_id, old.assigned_worker_id, old.service_address,
+        old.client_email, old.gcal_event_id, old.gcal_status, old.gcal_attendee, old.gcal_synced_at) then
+      raise exception 'technicians may only update booking_status, tech_notes and completion time';
+    end if;
+  end if;
+  return new;
+end $$;
 
 commit;

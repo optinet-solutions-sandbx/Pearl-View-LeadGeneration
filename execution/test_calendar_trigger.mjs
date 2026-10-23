@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 
 process.env.USE_SUPABASE = 'true';
 const require = createRequire(import.meta.url);
-require('../whatsapp-service/sb.js'); // same env/config bootstrap as the follow-up verifier
+const sb = require('../whatsapp-service/sb.js'); // same env/config bootstrap as the follow-up verifier
 
 const U = process.env.SUPABASE_URL;
 const K = process.env.SUPABASE_SERVICE_ROLE;
@@ -73,9 +73,21 @@ try {
   const stale = await rest('PATCH', `bookings?id=eq.${b.id}&gcal_rev=eq.1`, { gcal_sync_needed: false });
   assert.equal(stale.length, 0, 'stale-rev conditional PATCH must update 0 rows');
   assert.equal((await rest('GET', `bookings?id=eq.${b.id}&select=gcal_sync_needed`))[0].gcal_sync_needed, true);
+  // the real sync-job helpers, with the stale rev
+  assert.equal(await sb.claimBookingSync(b.id, 1, new Date(), 10), false, 'claimBookingSync with stale rev must be false');
+  assert.equal(await sb.finishBookingSync(b.id, 1, { gcal_sync_needed: false }), false, 'finishBookingSync with stale rev must be false');
+  assert.equal((await rest('GET', `bookings?id=eq.${b.id}&select=gcal_sync_needed`))[0].gcal_sync_needed, true);
   const fresh = await rest('PATCH', `bookings?id=eq.${b.id}&gcal_rev=eq.2`, { gcal_sync_needed: false });
   assert.equal(fresh.length, 1);
   assert.equal(fresh[0].gcal_rev, 2);
+
+  // 6b. emailed_ics rows (client already has an .ics) are never flagged
+  let x = await track({ gcal_status: 'emailed_ics' });
+  assert.equal(x.gcal_status, 'emailed_ics');
+  x = await patchB(x.id, { job_time: '14:00' });
+  assert.equal(x.gcal_status, 'emailed_ics');
+  assert.equal(x.gcal_sync_needed, false);
+  assert.equal(x.gcal_rev, 0);
 
   // 7. a supplied status on INSERT ('sending', self-rebook) is left alone while enabled
   const s = await track({ gcal_status: 'sending' });
@@ -104,4 +116,8 @@ try {
   try { await setEnabled(orig.enabled); }
   catch (e) { console.error('🚨 FEATURE LEFT ENABLED — set calendar_invite_settings.enabled back to', orig.enabled, 'manually:', e.message); process.exitCode = 1; }
   for (const id of created) await rest('DELETE', `bookings?id=eq.${id}`).catch(err => console.error('cleanup failed', id, err.message));
+  try {
+    const left = await rest('GET', 'bookings?client_name=like.TEST%20Calendar*&select=id');
+    if (left.length) throw new Error(`${left.length} TEST Calendar booking(s) left behind: ${left.map(r => r.id).join(',')}`);
+  } catch (err) { console.error('🚨 CLEANUP NOT PROVEN — delete the TEST Calendar bookings manually:', err.message); process.exitCode = 1; }
 }
