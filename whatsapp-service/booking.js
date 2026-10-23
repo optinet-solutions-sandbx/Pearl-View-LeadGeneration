@@ -301,6 +301,30 @@ function buildRebookEmail({ bookingId, clientName, email, svc, date, timeStr, ad
   return { subject: `Your window clean is booked — ${prettyDate}`, html, ics, prettyDate };
 }
 
+// Calendar invite first, .ics email as fallback; records the terminal invite
+// state on the booking. If BOTH paths fail the booking is marked 'failed' and the
+// original error is rethrown (client-facing behaviour unchanged). deps = test seam.
+async function sendInvite(args, deps = {}) {
+  const d = { createCalendarInvite, sendCalendarInvite, buildRebookEmail, updateBookingInvite, ...deps };
+  const { bookingId, clientName, email, svc, date, timeStr, address, city } = args;
+  try {
+    const ev = await d.createCalendarInvite(args);
+    await d.updateBookingInvite(bookingId, { 'Calendar Event Id': ev.id, 'Invite Status': 'sent', 'Invite Attendee': email });
+    return 'calendar';
+  } catch (e) {
+    console.error('Calendar invite failed, falling back to .ics email:', e?.message || e);
+    try {
+      const mail = d.buildRebookEmail({ bookingId, clientName, email, svc, date, timeStr, address, city });
+      await d.sendCalendarInvite({ to: email, subject: mail.subject, html: mail.html, ics: mail.ics });
+    } catch (e2) {
+      await d.updateBookingInvite(bookingId, { 'Invite Status': 'failed' });
+      throw e2;
+    }
+    await d.updateBookingInvite(bookingId, { 'Invite Status': 'emailed_ics' });
+    return 'ics';
+  }
+}
+
 /**
  * Orchestrate a client rebooking.
  * body: { t (signed token), date (YYYY-MM-DD), time? (HH:MM), service? }
@@ -352,17 +376,8 @@ async function createRebooking(body = {}) {
   // scope, or Calendar API not enabled — fall back to mailing the .ics.
   let inviteSent = false, inviteMethod = null;
   if (email) {
-    try {
-      const ev = await createCalendarInvite({ bookingId, clientName, email, svc, date, timeStr, address, city });
-      inviteSent = true; inviteMethod = 'calendar';
-      await updateBookingInvite(bookingId, { 'Calendar Event Id': ev.id, 'Invite Status': 'sent', 'Invite Attendee': email });
-    } catch (e) {
-      console.error('Calendar invite failed, falling back to .ics email:', e?.message || e);
-      const mail = buildRebookEmail({ bookingId, clientName, email, svc, date, timeStr, address, city });
-      await sendCalendarInvite({ to: email, subject: mail.subject, html: mail.html, ics: mail.ics });
-      inviteSent = true; inviteMethod = 'ics';
-      await updateBookingInvite(bookingId, { 'Invite Status': 'emailed_ics' });
-    }
+    inviteMethod = await sendInvite({ bookingId, clientName, email, svc, date, timeStr, address, city });
+    inviteSent = true;
   }
 
   // Always return a one-tap "Add to Google Calendar" URL — the confirmation page
@@ -373,4 +388,4 @@ async function createRebooking(body = {}) {
   return { success: true, bookingId, inviteSent, inviteMethod, gcalUrl, date, time: timeStr, clientName };
 }
 
-module.exports = { buildInviteBody, buildGcalUrl, oauthClient, createRebooking, getBookInfo, createBooking, generateIcs, icsLocal, sendCalendarInvite, buildRebookEmail };
+module.exports = { sendInvite, buildInviteBody, buildGcalUrl, oauthClient, createRebooking, getBookInfo, createBooking, generateIcs, icsLocal, sendCalendarInvite, buildRebookEmail };
