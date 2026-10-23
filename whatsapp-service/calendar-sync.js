@@ -41,6 +41,7 @@ const realDeps = {
 
 const httpStatus = err => err?.code ?? err?.response?.status;
 const isGone = err => [404, 410].includes(Number(httpStatus(err)));
+const isConflict = err => Number(httpStatus(err)) === 409;
 
 // Current date in the business time zone as 'YYYY-MM-DD'.
 function todayInTz(now, tz) {
@@ -62,7 +63,7 @@ async function runCalendarSync({ dry = false, probe = false, now = new Date(), d
   const settings = await deps.getSettings();
   if (!settings) return { skipped: 'not_set_up' };
 
-  const bookings = await deps.fetchDue({ nowIso: now.toISOString(), limit: BATCH });
+  const bookings = await deps.fetchDue({ nowIso: now.toISOString(), testOnly: !!settings.test_mode, limit: BATCH });
   const today = todayInTz(now, TZ);
   const out = {
     dry, enabled: !!settings.enabled, testMode: !!settings.test_mode, due: bookings.length,
@@ -87,15 +88,26 @@ async function runCalendarSync({ dry = false, probe = false, now = new Date(), d
             try { await deps.deleteEvent(eventId); } catch (err) { if (!isGone(err)) throw err; }
           } else {
             const body = core.buildEvent(b, { ...ctx, attendee: plan.attendee });
+            const newId = core.eventIdFor(b.id, b.gcal_rev);
+            // Insert with a deterministic id; 409 = an earlier (crashed) run already created it → adopt it.
+            const insertOrAdopt = async () => {
+              try {
+                return await deps.insertEvent({ ...body, id: newId });
+              } catch (err) {
+                if (!isConflict(err)) throw err;
+                await deps.patchEvent(newId, body);
+                return newId;
+              }
+            };
             if (plan.type === 'update') {
               try {
                 await deps.patchEvent(eventId, body);
               } catch (err) {
                 if (!isGone(err)) throw err;
-                eventId = await deps.insertEvent(body); // event deleted on Google's side → recreate
+                eventId = await insertOrAdopt(); // event deleted on Google's side → recreate
               }
             } else {
-              eventId = await deps.insertEvent(body);
+              eventId = await insertOrAdopt();
             }
           }
           patch = core.afterSuccess(plan.type, now, eventId, plan.attendee);

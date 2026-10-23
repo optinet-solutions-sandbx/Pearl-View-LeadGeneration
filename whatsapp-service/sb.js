@@ -138,9 +138,13 @@ async function getCalendarInviteSettings() {
   }
 }
 
-async function fetchBookingsToSync({ nowIso, limit = 25 }) {
+async function fetchBookingsToSync({ nowIso, testOnly = false, limit = 25 }) {
+  // Test mode: only TEST-named rows or rows that already have an event, so held
+  // real bookings never crowd the batch.
+  const due = `or(gcal_next_at.is.null,gcal_next_at.lte.${encodeURIComponent(nowIso)})`;
+  const filter = testOnly ? `&and=(${due},or(client_name.ilike.test*,gcal_event_id.not.is.null))` : `&${due.replace('or(', 'or=(')}`;
   const q = 'bookings?gcal_sync_needed=eq.true'
-    + `&or=(gcal_next_at.is.null,gcal_next_at.lte.${encodeURIComponent(nowIso)})`
+    + filter
     + '&select=id,client_name,client_email,date,job_time,booking_status,job_service,service_address,city,'
     + 'gcal_event_id,gcal_status,gcal_attendee,gcal_sync_needed,gcal_rev,gcal_fail_count,gcal_next_at'
     + `&order=gcal_next_at.asc.nullsfirst&limit=${limit}`;
@@ -151,7 +155,8 @@ async function fetchBookingsToSync({ nowIso, limit = 25 }) {
 // Lease a flagged booking for this run (pushes gcal_next_at forward). false = taken
 // by another run, or the booking changed (gcal_rev) / was unflagged since selected.
 async function claimBookingSync(id, rev, now, leaseMin) {
-  const q = `bookings?id=eq.${id}&gcal_rev=eq.${rev}&gcal_sync_needed=eq.true`;
+  const q = `bookings?id=eq.${id}&gcal_rev=eq.${rev}&gcal_sync_needed=eq.true`
+    + `&or=(gcal_next_at.is.null,gcal_next_at.lte.${encodeURIComponent(now.toISOString())})`;
   const lease = new Date(now.getTime() + leaseMin * 60000).toISOString();
   const r = await axios.patch(`${URL()}/rest/v1/${q}`, { gcal_next_at: lease },
     { headers: { ...H(), Prefer: 'return=representation' } });

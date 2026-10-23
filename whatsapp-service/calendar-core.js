@@ -77,6 +77,10 @@ function buildEvent(booking, { tz, brandShort, businessEmail, businessPhone, att
   };
 }
 
+// Deterministic Google event id (a-v, 0-9; 5-1024 chars): a retry after a crash
+// re-inserts the SAME id, so Google answers 409 instead of creating a duplicate.
+const eventIdFor = (bookingId, rev) => `pv${String(bookingId).replace(/-/g, '').toLowerCase()}r${rev}`;
+
 function afterSuccess(type, now, eventId, attendee) {
   const cancelled = type === 'cancel';
   return {
@@ -108,5 +112,5 @@ function afterFailure(booking, now) {
 
 module.exports = {
   EVENT_MINUTES, BACKOFF_MINUTES, MAX_FAILS,
-  parseJobTime, planSync, buildEvent, afterSuccess, afterSkip, afterFailure,
+  parseJobTime, planSync, buildEvent, eventIdFor, afterSuccess, afterSkip, afterFailure,
 };

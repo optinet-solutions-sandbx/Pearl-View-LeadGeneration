@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   EVENT_MINUTES, BACKOFF_MINUTES, MAX_FAILS,
-  parseJobTime, planSync, buildEvent, afterSuccess, afterSkip, afterFailure,
+  parseJobTime, planSync, buildEvent, eventIdFor, afterSuccess, afterSkip, afterFailure,
 } = require('./calendar-core');
 
 test('constants', () => {
@@ -110,4 +110,12 @@ test('afterFailure back-off', () => {
   assert.equal(last.gcal_status, 'failed');
   assert.equal(last.gcal_sync_needed, false);
   assert.equal(afterFailure({}, now).gcal_fail_count, 1);
+});
+
+test('eventIdFor: valid Google id, deterministic, differs per rev', () => {
+  const id = eventIdFor('3F2A9C10-1B2C-4D5E-8F90-ABCDEF123456', 4);
+  assert.equal(id, 'pv3f2a9c101b2c4d5e8f90abcdef123456r4');
+  assert.match(id, /^[a-v0-9]{5,1024}$/);
+  assert.equal(eventIdFor('3F2A9C10-1B2C-4D5E-8F90-ABCDEF123456', 4), id);
+  assert.notEqual(eventIdFor('3F2A9C10-1B2C-4D5E-8F90-ABCDEF123456', 5), id);
 });

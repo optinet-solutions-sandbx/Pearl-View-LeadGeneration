@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { runCalendarSync } = require('./calendar-sync');
+const { eventIdFor } = require('./calendar-core');
 
 test.beforeEach(() => {
   test.mock.method(console, 'log', () => {});
@@ -22,12 +23,12 @@ const gone = code => Object.assign(new Error('gone'), { code });
 
 function fakeDeps({ settings = SETTINGS(), rows = [BOOKING()], claim = true, finish = true,
   insert = async () => 'EV_NEW', patch = async () => {}, del = async () => {}, probe = async () => {} } = {}) {
-  const calls = { claim: [], finish: [], insert: [], patch: [], del: [], probe: 0 };
+  const calls = { fetch: [], claim: [], finish: [], insert: [], patch: [], del: [], probe: 0 };
   return {
     calls,
     deps: {
       getSettings: async () => settings,
-      fetchDue: async () => rows,
+      fetchDue: async args => { calls.fetch.push(args); return rows; },
       claim: async (...a) => { calls.claim.push(a); return claim; },
       finish: async (id, rev, p) => { calls.finish.push([id, rev, p]); return finish; },
       insertEvent: async b => { calls.insert.push(b); return insert(b); },
@@ -165,4 +166,46 @@ test('probe reports ok', async () => {
 test('probe reports the error', async () => {
   const { deps } = fakeDeps({ probe: async () => { throw new Error('insufficient scope'); } });
   assert.deepEqual(await runCalendarSync({ probe: true, deps }), { probe: 'insufficient scope' });
+});
+
+test('insert 409 adopts the existing event', async () => {
+  const { deps, calls } = fakeDeps({ insert: async () => { throw gone(409); } });
+  const r = await runCalendarSync({ now: NOW, deps });
+  const id = eventIdFor('B1', 3);
+  assert.equal(r.errors, 0);
+  assert.equal(r.created, 1);
+  assert.equal(calls.insert[0].id, id);
+  assert.equal(calls.patch[0][0], id);
+  assert.equal(calls.finish[0][2].gcal_event_id, id);
+});
+
+test('recreate uses the current rev id', async () => {
+  const { deps, calls } = fakeDeps({
+    rows: [BOOKING({ gcal_event_id: 'EV_OLD', gcal_attendee: 'jane@x.com', gcal_rev: 7 })],
+    patch: async id => { if (id === 'EV_OLD') throw gone(404); },
+    insert: async b => b.id,
+  });
+  await runCalendarSync({ now: NOW, deps });
+  assert.equal(calls.insert[0].id, eventIdFor('B1', 7));
+  assert.equal(calls.finish[0][2].gcal_event_id, eventIdFor('B1', 7));
+});
+
+test('two overlapping runs: the second claim fails, no second insert', async () => {
+  let leased = false;
+  const a = fakeDeps();
+  const b = fakeDeps();
+  const claim = async () => { if (leased) return false; leased = true; return true; };
+  a.deps.claim = claim; b.deps.claim = claim;
+  await Promise.all([runCalendarSync({ now: NOW, deps: a.deps }), runCalendarSync({ now: NOW, deps: b.deps })]);
+  assert.equal(a.calls.insert.length + b.calls.insert.length, 1);
+});
+
+test('test mode asks fetchDue for testOnly; a held real row is not claimed', async () => {
+  const { deps, calls } = fakeDeps({ settings: SETTINGS({ test_mode: true }) });
+  await runCalendarSync({ now: NOW, deps });
+  assert.equal(calls.fetch[0].testOnly, true);
+  assert.equal(calls.claim.length, 0);
+  const off = fakeDeps();
+  await runCalendarSync({ now: NOW, deps: off.deps });
+  assert.equal(off.calls.fetch[0].testOnly, false);
 });
