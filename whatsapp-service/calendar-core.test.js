@@ -72,6 +72,16 @@ test('buildEvent', () => {
   assert.equal(late.end.dateTime, '2026-11-07T01:00:00');
 });
 
+test('timestamptz booking dates', () => {
+  assert.equal(plan({ date: '2026-11-06T00:00:00+00:00' }).type, 'create');
+  assert.equal(plan({ date: '2026-10-22T00:00:00+00:00' }).type, 'past');
+  assert.equal(plan({ date: '2026-10-23T00:00:00+00:00' }).type, 'create');
+  const opts = { tz: 'Australia/Sydney', brandShort: 'Pearl View', businessEmail: 'b@pv.com', businessPhone: '0400', attendee: 'jane@x.com' };
+  const e = buildEvent({ ...base, date: '2026-11-06T00:00:00+00:00' }, opts);
+  assert.equal(e.start.dateTime, '2026-11-06T09:00:00');
+  assert.equal(e.end.dateTime, '2026-11-06T11:00:00');
+});
+
 const now = new Date('2026-10-23T00:00:00Z');
 test('afterSuccess / afterSkip', () => {
   assert.deepEqual(afterSuccess('create', now, 'e9', 'jane@x.com'), {

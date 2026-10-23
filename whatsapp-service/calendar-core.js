@@ -10,6 +10,9 @@ const MAX_FAILS = 5;
 
 const pad = n => String(n).padStart(2, '0');
 
+// bookings.date is a timestamptz ('2026-10-23T00:00:00+00:00'); keep only YYYY-MM-DD.
+const ymd = d => String(d || '').slice(0, 10);
+
 // '9:00 AM' | '2:30pm' | '14:30' -> 'HH:MM', or null when unusable.
 function parseJobTime(str) {
   const m = String(str == null ? '' : str).trim().match(/^(\d{1,2}):(\d{2})\s*([ap]m)?$/i);
@@ -46,7 +49,7 @@ function planSync(booking, settings, todayYmd) {
   }
 
   if (!parseJobTime(b.job_time)) return { type: 'needs_time' };
-  if (String(b.date || '') < todayYmd) return { type: 'past' };
+  if (ymd(b.date) < todayYmd) return { type: 'past' };
   if (!s.enabled && !hasEvent) return { type: 'noop' };
   return { type: hasEvent ? 'update' : 'create', attendee };
 }
@@ -62,12 +65,13 @@ function addMinutes(ymd, hhmm, minutes) {
 function buildEvent(booking, { tz, brandShort, businessEmail, businessPhone, attendee }) {
   const service = booking.job_service || 'Window Cleaning';
   const time = parseJobTime(booking.job_time);
+  const date = ymd(booking.date);
   return {
     summary: `${service} — ${brandShort}`,
     location: booking.service_address || booking.city || '',
     description: `Your window clean with ${brandShort}.\nService: ${service}\nNeed to change it? Reply to this invitation or contact us on ${businessPhone} / ${businessEmail}.`,
-    start: { dateTime: `${booking.date}T${time}:00`, timeZone: tz },
-    end: { dateTime: addMinutes(booking.date, time, EVENT_MINUTES), timeZone: tz },
+    start: { dateTime: `${date}T${time}:00`, timeZone: tz },
+    end: { dateTime: addMinutes(date, time, EVENT_MINUTES), timeZone: tz },
     attendees: [{ email: attendee, displayName: booking.client_name }],
     reminders: { useDefault: true },
   };
