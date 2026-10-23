@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useLeadsContext } from '../../context/LeadsContext';
-import { timeRequired, inviteStatusLabel } from '../../utils/inviteRules';
+import { timeRequired, inviteStatusLabel, changedFields } from '../../utils/inviteRules';
 import { createRecord, AT_TABLES } from '../../utils/airtableSync';
 import { fetchTechnicians } from '../../utils/supabaseClient';
 import { overlayClose } from '../../utils/overlayClose';
@@ -164,7 +164,7 @@ const PILL_TONES = {
   muted: { bg: 'var(--gray-100)', fg: 'var(--gray-600)' },
 };
 
-function AppointmentFormFields({ form, setField, leads = [], clients = [], technicians = [] }) {
+function AppointmentFormFields({ form, setField, leads = [], clients = [], technicians = [], inviteSettings = null }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   const suggestions = useMemo(() => {
@@ -192,7 +192,7 @@ function AppointmentFormFields({ form, setField, leads = [], clients = [], techn
   function selectSuggestion(item) {
     setField('clientName', item.name);
     setField('phone', item.phone || '');
-    if (item.email) setField('email', item.email);
+    setField('email', item.email || ''); // never keep the previous client's email
     if (item.city)    setField('city',    item.city);
     if (item.address) setField('address', item.address);
     setShowSuggestions(false);
@@ -237,13 +237,16 @@ function AppointmentFormFields({ form, setField, leads = [], clients = [], techn
       </div>
       <label style={fLbl}>Phone</label>
       <input value={form.phone} onChange={e => setField('phone', e.target.value)} placeholder="e.g. 0400 000 000" style={fInput} />
-      <label style={fLbl}>Email (optional)</label>
-      <input type="email" value={form.email || ''} onChange={e => setField('email', e.target.value)} placeholder="e.g. client@email.com" style={fInput} />
+      {/* Only where this branch has calendar invitations set up (settings row loaded). */}
+      {inviteSettings && <>
+        <label style={fLbl}>Email (optional)</label>
+        <input type="email" value={form.email || ''} onChange={e => setField('email', e.target.value)} placeholder="e.g. client@email.com" style={fInput} />
+      </>}
       <label style={fLbl}>City / Location</label>
       <input value={form.city} onChange={e => setField('city', e.target.value)} placeholder="e.g. Brisbane" style={fInput} />
       <label style={fLbl}>Address</label>
       <input value={form.address || ''} onChange={e => setField('address', e.target.value)} placeholder="e.g. 123 Main St" style={fInput} />
-      <label style={fLbl}>Job Time{timeRequired(form.email, '') && <span style={{ color: '#dc2626' }}> *</span>}</label>
+      <label style={fLbl}>Job Time{timeRequired(form.email, '', inviteSettings) && <span style={{ color: '#dc2626' }}> *</span>}</label>
       <TimePicker value={form.jobTime || ''} onChange={v => setField('jobTime', v)} />
       <label style={fLbl}>Assigned Worker{technicians.length === 0 && ' (name)'}</label>
       {technicians.length > 0 ? (
@@ -271,7 +274,8 @@ function AppointmentFormFields({ form, setField, leads = [], clients = [], techn
 
 // ── Edit booking modal ────────────────────────────────────────────────────────
 function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, leads = [], clients = [], technicians = [], needsInvoicing = false, readOnly = false, inviteSettings = null, onMarkDone, onSaveNote }) {
-  const [form, setForm] = useState({
+  // The form as opened — Save sends only the fields changed from it.
+  const [initial] = useState(() => ({
     clientName:       booking.clientName       || '',
     phone:            booking.phone            || '',
     email:            booking.email            || '',
@@ -282,7 +286,8 @@ function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, lead
     jobTime:          booking.jobTime          || '',
     assignedWorker:   booking.assignedWorker   || '',
     assignedWorkerId: booking.assignedWorkerId || '',
-  });
+  }));
+  const [form, setForm] = useState(initial);
   const [err,          setErr]          = useState('');
   const [showComplete, setShowComplete] = useState(false);
   const [techNote,     setTechNote]     = useState(booking.techNotes || '');
@@ -292,15 +297,12 @@ function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, lead
   function handleSave() {
     if (!form.clientName.trim()) { setErr('Client name is required'); return; }
     if (!form.date) { setErr('Please select a date'); return; }
-    const timeErr = timeRequired(form.email, form.jobTime);
+    const timeErr = timeRequired(form.email, form.jobTime, inviteSettings);
     if (timeErr) { setErr(timeErr); return; }
     setErr('');
-    // date/email only when changed — avoids redundant writes (and invite churn).
-    const { date, email, ...rest } = form;
-    const data = { ...rest };
-    if (date !== (booking.date || '')) data.date = date;
-    if (email.trim() !== (booking.email || '').trim()) data.email = email.trim();
-    onSave(data);
+    // Changed fields only — an untouched field ('' vs NULL) would re-flag the
+    // booking and email the client a needless "updated invitation".
+    onSave(changedFields(form, initial));
   }
 
   const isDone = booking.bookingStatus === 'Completed';
@@ -354,7 +356,7 @@ function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, lead
 
           <label style={fLbl}>Date <span style={{ color: '#dc2626' }}>*</span></label>
           <input type="date" value={form.date} onChange={e => setField('date', e.target.value)} style={fInput} />
-          <AppointmentFormFields form={form} setField={setField} leads={leads} clients={clients} technicians={technicians} />
+          <AppointmentFormFields form={form} setField={setField} leads={leads} clients={clients} technicians={technicians} inviteSettings={inviteSettings} />
 
           {err && <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '10px', padding: '8px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px' }}>{err}</div>}
 
@@ -394,7 +396,7 @@ function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, lead
 }
 
 // ── Booking modal (click a day on the calendar) ───────────────────────────────
-function BookingModal({ year, month, day, leads, clients = [], technicians = [], addCalBooking, onClose }) {
+function BookingModal({ year, month, day, leads, clients = [], technicians = [], inviteSettings = null, addCalBooking, onClose }) {
   const [form,    setForm]    = useState({ clientName: '', phone: '', city: '', address: '', service: 'Window Cleaning', jobTime: '', email: '', assignedWorker: '', assignedWorkerId: '', amount: '', method: 'Cash' });
   const [formErr, setFormErr] = useState('');
 
@@ -405,7 +407,7 @@ function BookingModal({ year, month, day, leads, clients = [], technicians = [],
 
   function handleSubmitNew() {
     if (!form.clientName.trim()) { setFormErr('Client name is required'); return; }
-    const timeErr = timeRequired(form.email, form.jobTime);
+    const timeErr = timeRequired(form.email, form.jobTime, inviteSettings);
     if (timeErr) { setFormErr(timeErr); return; }
     setFormErr('');
     const amt = parseFloat(form.amount) || 0;
@@ -428,7 +430,7 @@ function BookingModal({ year, month, day, leads, clients = [], technicians = [],
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: 'var(--gray-400)', padding: '4px' }}>✕</button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '16px 20px' }}>
-          <AppointmentFormFields form={form} setField={setField} leads={leads} clients={clients} technicians={technicians} />
+          <AppointmentFormFields form={form} setField={setField} leads={leads} clients={clients} technicians={technicians} inviteSettings={inviteSettings} />
 
           {/* Amount here is the EXPECTED/quote figure — it is NOT income until the
               job is marked done + payment recorded (prevents double-counting). */}
@@ -836,6 +838,7 @@ export default function CalendarPage() {
         <BookingModal
           year={year} month={month} day={modalDay}
           leads={leads} clients={clients} technicians={technicians}
+          inviteSettings={inviteSettings}
           addCalBooking={addCalBooking}
           onClose={() => setModalDay(null)}
         />

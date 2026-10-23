@@ -37,7 +37,7 @@ function TimePicker({ value, onChange }) {
 }
 
 export default function BookModal() {
-  const { bookModalId, confirmBook, closeBookModal, leads } = useLeadsContext();
+  const { bookModalId, confirmBook, closeBookModal, leads, inviteSettings } = useLeadsContext();
 
   const [date,   setDate]   = useState(new Date().toISOString().slice(0, 10));
   const [time,   setTime]   = useState('');
@@ -51,7 +51,7 @@ export default function BookModal() {
 
   function handleSubmit() {
     if (!date) { setErr('Please select a date'); return; }
-    const timeErr = timeRequired(lead?.email, time);
+    const timeErr = timeRequired(lead?.email, time, inviteSettings);
     if (timeErr) { setErr(timeErr); return; }
     setErr('');
     confirmBook({ date, jobTime: time, worker, amount: parseFloat(amount) || 0, paymentMethod: method });
@@ -59,8 +59,8 @@ export default function BookModal() {
 
   const lbl = { fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--gray-500)', marginBottom: '6px', display: 'block' };
   const hasAmount = parseFloat(amount) > 0;
-  // The client gets a calendar invitation when there's an email, so the time is required.
-  const hasEmail = !!lead?.email && !!timeRequired(lead.email, '');
+  // The client gets a calendar invitation (invites on + an email), so the time is required.
+  const hasEmail = !!lead?.email && !!timeRequired(lead.email, '', inviteSettings);
 
   return (
     <div

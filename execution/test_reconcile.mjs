@@ -16,6 +16,14 @@ assert.strictEqual(findLinked(recs, { phone: '0400111222', name: 'Amira' }).name
 assert.strictEqual(findLinked(recs, { name: 'nobody' }), null, 'no match → null');
 // a caller WITH a phone must not fall back to name
 assert.strictEqual(findLinked(recs, { phone: '0400000000', name: 'Tania' }), null, 'phone present but unmatched → no name fallback');
+// a record linked to ANOTHER lead is never claimed via the phone/name fallback
+assert.strictEqual(findLinked(recs, { leadId: 'L2', phone: '0400 111 222' }), null, 'linked to another lead + same phone → no match');
+assert.strictEqual(findLinked([{ leadId: 'L1', phone: '', name: 'Bailey' }], { leadId: 'L2', name: 'bailey' }), null, 'linked to another lead + same name → no match');
+assert.strictEqual(findLinked(recs, { leadId: 'L2', phone: '0400999888' }).name, 'Amira', 'unlinked record + same phone → still matches');
+assert.strictEqual(findLinked(recs, { leadId: 'L2', name: 'tania' }).name, 'Tania', 'unlinked record + same name → still matches');
+assert.strictEqual(
+  findLinked([{ leadId: 'L1', phone: '0400 111 222', name: 'Old' }, { leadId: null, phone: '0400111222', name: 'New' }], { leadId: 'L2', phone: '0400111222' }).name,
+  'New', 'skips the other lead\'s record and takes the unlinked one');
 
 // ── computeReconcile: booking status follows lead status ────────────────────
 const bk = (bookingStatus, amount) => ({ bookingStatus, amount });

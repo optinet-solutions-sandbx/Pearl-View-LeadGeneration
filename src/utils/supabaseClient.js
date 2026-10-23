@@ -218,10 +218,16 @@ export async function saveFollowupSettings(patch) {
   return (await r.json())[0] || null;
 }
 // ── Calendar invites (owner only; null = table missing / not the owner) ─────
+// true only once a settings row came back = this branch has the invitations
+// migration (bookings.client_email exists). Perth / technicians stay false.
+let _inviteSchema = false;
+export const inviteSchemaReady = () => _inviteSchema;
 export async function fetchInviteSettings() {
   try {
     const rows = await sbSelect('calendar_invite_settings?id=eq.1&select=*');
-    return (rows && rows[0]) || null;
+    const row = (rows && rows[0]) || null;
+    _inviteSchema = !!row;
+    return row;
   } catch { return null; }
 }
 export async function saveInviteSettings(patch) {

@@ -167,6 +167,13 @@ async function claimBookingSync(id, rev, now, leaseMin) {
   return Array.isArray(r.data) && r.data.length === 1;
 }
 
+// Record a just-created Google event on the booking, filtered by id ONLY (no rev
+// guard) so an edit made mid-sync can't lose it. Touches only gcal_* columns, so
+// the bookings_gcal_mark trigger never re-flags; service_role passes the tech guard.
+async function recordBookingEvent(id, eventId, attendee) {
+  await axios.patch(`${URL()}/rest/v1/bookings?id=eq.${id}`, { gcal_event_id: eventId, gcal_attendee: attendee }, { headers: H() });
+}
+
 // Write the sync result ONLY if the booking is still at the revision we synced;
 // false = the office edited it mid-sync, so it stays flagged for the next run.
 async function finishBookingSync(id, rev, patch) {
@@ -176,7 +183,7 @@ async function finishBookingSync(id, rev, patch) {
 }
 
 module.exports = {
-  getCalendarInviteSettings, fetchBookingsToSync, claimBookingSync, finishBookingSync,
+  getCalendarInviteSettings, fetchBookingsToSync, claimBookingSync, recordBookingEvent, finishBookingSync,
   USE_SUPABASE, getLeadById, updateLead, nextInvoiceNumber, createBooking, updateBooking, fetchActiveBookings, findLead, createLead,
   getLeadsForContext, getFacebookLeadIds,
   getFollowupSettings, fetchDueFollowups, claimFollowup, updateActiveFollowup, insertFollowupLog,

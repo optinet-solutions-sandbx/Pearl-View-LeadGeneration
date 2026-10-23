@@ -72,6 +72,24 @@ test('buildEvent', () => {
   assert.equal(late.end.dateTime, '2026-11-07T01:00:00');
 });
 
+test('buildEvent marks the event confirmed (a patch revives a hand-deleted event)', () => {
+  const opts = { tz: 'Australia/Sydney', brandShort: 'Pearl View', businessEmail: 'b@pv.com', businessPhone: '0400', attendee: 'jane@x.com' };
+  assert.equal(buildEvent({ ...base }, opts).status, 'confirmed');
+});
+
+test('planSync: an existing event follows a move to a past date', () => {
+  assert.deepEqual(plan({ ...withEv, date: '2026-10-22' }), { type: 'update', attendee: 'jane@x.com' });
+  assert.equal(plan({ ...withEv, date: '2026-10-22T00:00:00+00:00' }).type, 'update');
+  assert.equal(plan({ ...withEv, date: '2026-10-22' }, { enabled: false, test_mode: false }).type, 'update');
+  assert.equal(plan({ date: '2026-10-22' }).type, 'past'); // no event yet → still never invites into the past
+});
+
+test('planSync: a blank time with an existing event leaves the event alone', () => {
+  assert.equal(plan({ ...withEv, job_time: '' }).type, 'noop');
+  assert.equal(plan({ ...withEv, job_time: '', date: '2026-10-22' }).type, 'noop');
+  assert.equal(plan({ job_time: '' }).type, 'needs_time'); // no event yet → unchanged
+});
+
 test('timestamptz booking dates', () => {
   assert.equal(plan({ date: '2026-11-06T00:00:00+00:00' }).type, 'create');
   assert.equal(plan({ date: '2026-10-22T00:00:00+00:00' }).type, 'past');

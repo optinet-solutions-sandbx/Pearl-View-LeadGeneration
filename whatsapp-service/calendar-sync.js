@@ -23,6 +23,7 @@ const realDeps = {
   getSettings: sb.getCalendarInviteSettings,
   fetchDue: sb.fetchBookingsToSync,
   claim: sb.claimBookingSync,
+  recordEvent: sb.recordBookingEvent,
   finish: sb.finishBookingSync,
   async insertEvent(requestBody) {
     const r = await calendarApi().events.insert({ calendarId: 'primary', sendUpdates: 'all', requestBody }, GOOGLE_OPTS);
@@ -82,8 +83,9 @@ async function runCalendarSync({ dry = false, probe = false, now = new Date(), d
 
       let patch;
       if (plan.type === 'create' || plan.type === 'update' || plan.type === 'cancel') {
+        let eventId = b.gcal_event_id;
+        let inserted = false; // a NEW Google event exists (insert / 409-adopt / recreate)
         try {
-          let eventId = b.gcal_event_id;
           if (plan.type === 'cancel') {
             try { await deps.deleteEvent(eventId); } catch (err) { if (!isGone(err)) throw err; }
           } else {
@@ -105,15 +107,13 @@ async function runCalendarSync({ dry = false, probe = false, now = new Date(), d
               } catch (err) {
                 if (!isGone(err)) throw err;
                 eventId = await insertOrAdopt(); // event deleted on Google's side → recreate
+                inserted = true;
               }
             } else {
               eventId = await insertOrAdopt();
+              inserted = true;
             }
           }
-          patch = core.afterSuccess(plan.type, now, eventId, plan.attendee);
-          if (plan.type === 'create') out.created++;
-          else if (plan.type === 'update') out.updated++;
-          else out.cancelled++;
         } catch (err) {
           const msg = String(err.message || err).slice(0, 500);
           console.error(`[ALERT] 🚨 [calendar-sync] ${plan.type} failed for ${b.id}: ${msg}`);
@@ -121,6 +121,24 @@ async function runCalendarSync({ dry = false, probe = false, now = new Date(), d
           await deps.finish(b.id, b.gcal_rev, core.afterFailure(b, now));
           continue;
         }
+        if (inserted) {
+          // Persist the new event id NOW, by booking id only: if the office edits the
+          // booking before finish (rev-guarded) lands, the next run must update THIS
+          // event — not insert a second one, leaving this one where no cancel reaches it.
+          try {
+            await deps.recordEvent(b.id, eventId, plan.attendee);
+          } catch (err) {
+            // No finish: the lease expires and the retry re-inserts the same
+            // deterministic id → 409 → adopts this event.
+            console.error(`[ALERT] 🚨 [calendar-sync] event ${eventId} created but not recorded for ${b.id}: ${String(err.message || err).slice(0, 500)}`);
+            out.errors++;
+            continue;
+          }
+        }
+        patch = core.afterSuccess(plan.type, now, eventId, plan.attendee);
+        if (plan.type === 'create') out.created++;
+        else if (plan.type === 'update') out.updated++;
+        else out.cancelled++;
       } else {
         // noop / past / no_email / needs_time — nothing to send; clear the flag.
         patch = core.afterSkip(plan.type);

@@ -48,8 +48,10 @@ function planSync(booking, settings, todayYmd) {
     else return { type: 'hold' };
   }
 
-  if (!parseJobTime(b.job_time)) return { type: 'needs_time' };
-  if (ymd(b.date) < todayYmd) return { type: 'past' };
+  // An existing event never short-circuits on a past date (it follows the move) or a
+  // blanked time (nothing to move it to → leave the event as it is).
+  if (!parseJobTime(b.job_time)) return { type: hasEvent ? 'noop' : 'needs_time' };
+  if (ymd(b.date) < todayYmd && !hasEvent) return { type: 'past' };
   if (!s.enabled && !hasEvent) return { type: 'noop' };
   return { type: hasEvent ? 'update' : 'create', attendee };
 }
@@ -74,6 +76,7 @@ function buildEvent(booking, { tz, brandShort, businessEmail, businessPhone, att
     end: { dateTime: addMinutes(date, time, EVENT_MINUTES), timeZone: tz },
     attendees: [{ email: attendee, displayName: booking.client_name }],
     reminders: { useDefault: true },
+    status: 'confirmed', // a patch to an event deleted by hand in Google revives it
   };
 }
 

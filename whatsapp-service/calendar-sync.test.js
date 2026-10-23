@@ -22,15 +22,17 @@ const BOOKING = (o = {}) => ({
 const gone = code => Object.assign(new Error('gone'), { code });
 
 function fakeDeps({ settings = SETTINGS(), rows = [BOOKING()], claim = true, finish = true,
-  insert = async () => 'EV_NEW', patch = async () => {}, del = async () => {}, probe = async () => {} } = {}) {
-  const calls = { fetch: [], claim: [], finish: [], insert: [], patch: [], del: [], probe: 0 };
+  insert = async () => 'EV_NEW', patch = async () => {}, del = async () => {}, probe = async () => {},
+  record = async () => {} } = {}) {
+  const calls = { fetch: [], claim: [], finish: [], insert: [], patch: [], del: [], record: [], order: [], probe: 0 };
   return {
     calls,
     deps: {
       getSettings: async () => settings,
       fetchDue: async args => { calls.fetch.push(args); return rows; },
       claim: async (...a) => { calls.claim.push(a); return claim; },
-      finish: async (id, rev, p) => { calls.finish.push([id, rev, p]); return finish; },
+      recordEvent: async (...a) => { calls.record.push(a); calls.order.push('record'); return record(...a); },
+      finish: async (id, rev, p) => { calls.finish.push([id, rev, p]); calls.order.push('finish'); return finish; },
       insertEvent: async b => { calls.insert.push(b); return insert(b); },
       patchEvent: async (id, b) => { calls.patch.push([id, b]); return patch(id, b); },
       deleteEvent: async id => { calls.del.push(id); return del(id); },
@@ -208,4 +210,91 @@ test('test mode asks fetchDue for testOnly; a held real row is not claimed', asy
   const off = fakeDeps();
   await runCalendarSync({ now: NOW, deps: off.deps });
   assert.equal(off.calls.fetch[0].testOnly, false);
+});
+
+// ── The new event id is persisted (by booking id only) BEFORE the rev-guarded finish
+test('records the new event id before finish', async () => {
+  const { deps, calls } = fakeDeps();
+  await runCalendarSync({ now: NOW, deps });
+  assert.deepEqual(calls.record, [['B1', 'EV_NEW', 'jane@x.com']]);
+  assert.deepEqual(calls.order, ['record', 'finish']);
+});
+
+test('records the id of an adopted (409) or recreated event; a plain update records nothing', async () => {
+  const adopt = fakeDeps({ insert: async () => { throw gone(409); } });
+  await runCalendarSync({ now: NOW, deps: adopt.deps });
+  assert.deepEqual(adopt.calls.record, [['B1', eventIdFor('B1', 3), 'jane@x.com']]);
+
+  const recreate = fakeDeps({
+    rows: [BOOKING({ gcal_event_id: 'EV_OLD', gcal_attendee: 'jane@x.com' })],
+    patch: async () => { throw gone(404); },
+  });
+  await runCalendarSync({ now: NOW, deps: recreate.deps });
+  assert.deepEqual(recreate.calls.record, [['B1', 'EV_NEW', 'jane@x.com']]);
+
+  const plain = fakeDeps({ rows: [BOOKING({ gcal_event_id: 'EV1', gcal_attendee: 'jane@x.com' })] });
+  await runCalendarSync({ now: NOW, deps: plain.deps });
+  assert.equal(plain.calls.record.length, 0);
+});
+
+test('a failed event-id write alerts, counts an error and skips finish', async () => {
+  const { deps, calls } = fakeDeps({ record: async () => { throw new Error('db down'); } });
+  const r = await runCalendarSync({ now: NOW, deps });
+  assert.equal(r.errors, 1);
+  assert.equal(r.created, 0);
+  assert.equal(calls.insert.length, 1);
+  assert.equal(calls.finish.length, 0); // lease expires; the deterministic id + 409-adopt covers the retry
+  assert.ok(console.error.mock.calls.some(c => /\[ALERT\]/.test(String(c.arguments[0]))));
+});
+
+// Fake with per-booking state, so an office edit (rev bump) can land between the
+// Google insert and finish — and the next run sees whatever was recorded.
+function statefulDeps(row, google, onInsert) {
+  const calls = { insert: [], patch: [], del: [] };
+  return {
+    calls,
+    deps: {
+      getSettings: async () => SETTINGS(),
+      fetchDue: async () => (row.gcal_sync_needed ? [{ ...row }] : []),
+      claim: async (id, rev) => rev === row.gcal_rev,
+      recordEvent: async (id, eventId, attendee) => { Object.assign(row, { gcal_event_id: eventId, gcal_attendee: attendee }); },
+      finish: async (id, rev, p) => { if (rev !== row.gcal_rev) return false; Object.assign(row, p); return true; },
+      insertEvent: async b => { calls.insert.push(b); google[b.id] = { start: b.start.dateTime, status: 'confirmed' }; if (onInsert) onInsert(); return b.id; },
+      patchEvent: async (id, b) => { calls.patch.push(id); google[id].start = b.start.dateTime; },
+      deleteEvent: async id => { calls.del.push(id); google[id].status = 'cancelled'; },
+    },
+  };
+}
+
+async function editDuringFirstInsert() {
+  const row = BOOKING({ booking_status: 'Scheduled', gcal_rev: 1 });
+  const google = {};
+  const officeEdit = () => { row.date = '2026-11-13T00:00:00+00:00'; row.gcal_rev++; row.gcal_sync_needed = true; };
+  const run1 = await runCalendarSync({ now: NOW, deps: statefulDeps(row, google, officeEdit).deps });
+  const second = statefulDeps(row, google);
+  const run2 = await runCalendarSync({ now: NOW, deps: second.deps });
+  return { row, google, run1, run2, second, first: eventIdFor('B1', 1) };
+}
+
+test('an edit between insert and finish → next run updates the stored event, never inserts again', async () => {
+  const { row, google, run1, run2, second, first } = await editDuringFirstInsert();
+  assert.equal(run1.requeued, 1);
+  assert.equal(run2.updated, 1);
+  assert.equal(second.calls.insert.length, 0);
+  assert.deepEqual(second.calls.patch, [first]);
+  assert.deepEqual(Object.keys(google), [first]);
+  assert.equal(google[first].start, '2026-11-13T09:00:00');
+  assert.equal(row.gcal_event_id, first);
+  assert.equal(row.gcal_sync_needed, false);
+});
+
+test('an edit between insert and finish → then a cancel deletes the first event', async () => {
+  const { row, google, first } = await editDuringFirstInsert();
+  row.booking_status = 'Cancelled'; row.gcal_rev++; row.gcal_sync_needed = true;
+  const third = statefulDeps(row, google);
+  const run3 = await runCalendarSync({ now: NOW, deps: third.deps });
+  assert.equal(run3.cancelled, 1);
+  assert.deepEqual(third.calls.del, [first]);
+  assert.ok(Object.values(google).every(e => e.status === 'cancelled'), JSON.stringify(google));
+  assert.equal(row.gcal_event_id, null);
 });

@@ -162,15 +162,24 @@ function buildInviteBody({ clientName, email, svc, date, timeStr, address, city 
   );
 }
 
-async function createCalendarInvite({ bookingId, clientName, email, svc, date, timeStr, address, city }) {
-  const cal = google.calendar({ version: 'v3', auth: oauthClient() });
+// Pure: the events.insert requestBody. The deterministic id only when Google accepts
+// it (base32hex) — an Airtable-rollback booking id ('rec…', has w-z) would be rejected,
+// so that path inserts without an id and Google assigns one.
+const GCAL_EVENT_ID = /^[a-v0-9]{5,1024}$/;
+function inviteRequestBody({ bookingId, clientName, email, svc, date, timeStr, address, city }) {
   const id = eventIdFor(bookingId, 0);
-  await cal.events.insert({
+  return { ...(GCAL_EVENT_ID.test(id) ? { id } : {}), ...buildInviteBody({ clientName, email, svc, date, timeStr, address, city }) };
+}
+
+async function createCalendarInvite(args) {
+  const cal = google.calendar({ version: 'v3', auth: oauthClient() });
+  const requestBody = inviteRequestBody(args);
+  const r = await cal.events.insert({
     calendarId: 'primary',
     sendUpdates: 'all', // emails the attendee a real invite → auto-adds to their calendar
-    requestBody: { id, ...buildInviteBody({ clientName, email, svc, date, timeStr, address, city }) },
+    requestBody,
   }, { timeout: 30000 });
-  return { id };
+  return { id: r?.data?.id || requestBody.id };
 }
 
 // ── Gmail send (calendar invite) ──────────────────────────────────────────────
@@ -368,6 +377,10 @@ async function createRebooking(body = {}) {
     'Date': date,
     'Booking Status': 'Scheduled',
     'Job Time': timeStr,
+    // Supabase only (the old Airtable Bookings table has none of these fields): the
+    // event's address (so a later sync keeps it) and the stable lead link.
+    ...(sb.USE_SUPABASE && address ? { 'Service Address': address } : {}),
+    ...(sb.USE_SUPABASE && lead?.id ? { 'Lead Id': lead.id } : {}),
     ...(sb.USE_SUPABASE && email ? { 'Client Email': email, 'Invite Status': 'sending' } : {}),
   });
 
@@ -388,4 +401,4 @@ async function createRebooking(body = {}) {
   return { success: true, bookingId, inviteSent, inviteMethod, gcalUrl, date, time: timeStr, clientName };
 }
 
-module.exports = { sendInvite, buildInviteBody, buildGcalUrl, oauthClient, createRebooking, getBookInfo, createBooking, generateIcs, icsLocal, sendCalendarInvite, buildRebookEmail };
+module.exports = { sendInvite, buildInviteBody, inviteRequestBody, buildGcalUrl, oauthClient, createRebooking, getBookInfo, createBooking, generateIcs, icsLocal, sendCalendarInvite, buildRebookEmail };

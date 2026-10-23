@@ -2,8 +2,9 @@ import { useState, useCallback, useRef } from 'react';
 import { STATUS_MAP, AT_STATUS_MAP, PROG_MAP } from '../utils/constants';
 import { parseDate } from '../utils/dateUtils';
 import { createRecord, updateRecord, deleteRecord, fetchRecords, AT_TABLES } from '../utils/airtableSync';
-import { USE_SUPABASE, sbSelectAll, sbCreate, sbPatchLead, sbLeadRowToRecord, sbBookingRowToRecord, sbClientRowToRecord } from '../utils/supabaseClient';
+import { USE_SUPABASE, inviteSchemaReady, sbSelectAll, sbCreate, sbPatchLead, sbLeadRowToRecord, sbBookingRowToRecord, sbClientRowToRecord } from '../utils/supabaseClient';
 import { followupStartPatch } from '../utils/followupTemplate';
+import { findLinked } from '../utils/reconcile';
 
 const VALID_JOB_TYPES = new Set(['Window Cleaning', 'Pressure Washing', 'Solar Panel', 'Other']);
 
@@ -532,21 +533,20 @@ export function useLeads(technician = false) {
     // job_done → Completed sync above. Gated on the lead having BEEN Booked, so it
     // never touches bookings for leads that were never booked (avoids same-name mixups).
     if (prevLead.status === 'booked' && status !== 'booked' && status !== 'job_done') {
-      const phone = (currentLead.phone || '').replace(/\s/g, '').toLowerCase();
-      const name  = (currentLead.name  || '').trim().toLowerCase();
-      setCalBookings(prev => {
-        const isActive = b => b.bookingStatus !== 'Completed' && b.bookingStatus !== 'Cancelled';
-        const linked = prev.find(b => isActive(b) && (
-          (b.linkedLeadId && b.linkedLeadId === id) ||
-          (phone && (b.phone || '').replace(/\s/g, '').toLowerCase() === phone) ||
-          (!phone && name && (b.clientName || '').trim().toLowerCase() === name)
-        ));
-        if (!linked) return prev;
+      // findLinked: this lead's own booking first, then phone, then name (phone-less
+      // only) — never a booking linked to ANOTHER lead. Read from the closure, not a
+      // setState updater (React 18 batching after the await above).
+      const isActive = b => b.bookingStatus !== 'Completed' && b.bookingStatus !== 'Cancelled';
+      const linked = findLinked(
+        calBookings.filter(isActive).map(b => ({ leadId: b.linkedLeadId, phone: b.phone, name: b.clientName, booking: b })),
+        { leadId: id, phone: currentLead.phone, name: currentLead.name },
+      )?.booking;
+      if (linked) {
         if (linked.airtableId) {
           updateRecord(AT_TABLES.calendar, linked.airtableId, { 'Booking Status': 'Cancelled' });
         }
-        return prev.map(b => b.id === linked.id ? { ...b, bookingStatus: 'Cancelled' } : b);
-      });
+        setCalBookings(prev => prev.map(b => b.id === linked.id ? { ...b, bookingStatus: 'Cancelled' } : b));
+      }
     }
     return 'ok';
   }, [patchAirtable, leads, calBookings]);
@@ -1070,8 +1070,9 @@ export function useLeads(technician = false) {
       // Persist the stable link so bookings match their lead by id, not fuzzy
       // phone/name (covers confirmBook, which passes linkedLeadId).
       ...(record.linkedLeadId ? { 'Lead Id': record.linkedLeadId } : {}),
-      // Old Airtable Bookings has no 'Client Email' field - sending it would fail the write.
-      ...(USE_SUPABASE && record.email ? { 'Client Email': record.email } : {}),
+      // Only where bookings.client_email exists: old Airtable Bookings and branches
+      // without the invitations migration (Perth) would fail the whole write.
+      ...(USE_SUPABASE && inviteSchemaReady() && record.email ? { 'Client Email': record.email } : {}),
     };
     const airtableId = await createRecord(AT_TABLES.calendar, atFields);
     if (airtableId) {
@@ -1166,13 +1167,14 @@ export function useLeads(technician = false) {
       if (data.city          !== undefined) patch['City']           = data.city;
       if (data.service       !== undefined) patch['Job_Service']    = data.service;
       if (data.date          !== undefined) patch['Date']           = data.date || null;
-      // Old Airtable Bookings has no 'Client Email' field - only send it on Supabase.
-      if (USE_SUPABASE && data.email !== undefined) patch['Client Email'] = data.email;
+      // Only where bookings.client_email exists (not Airtable, not a branch without the invitations migration).
+      if (USE_SUPABASE && inviteSchemaReady() && data.email !== undefined) patch['Client Email'] = data.email;
       if (data.bookingStatus !== undefined) patch['Booking Status'] = data.bookingStatus;
       if (data.amount        !== undefined) patch['Amount']         = data.amount;
       if (data.jobTime       !== undefined) patch['Job Time']       = data.jobTime;
       if (data.assignedWorker !== undefined) patch['Assigned Worker'] = data.assignedWorker;
-      if (data.assignedWorkerId !== undefined) patch['Assigned Worker Id'] = data.assignedWorkerId;
+      // uuid column: '' (unassigned) must be null, or PostgREST rejects the whole edit.
+      if (data.assignedWorkerId !== undefined) patch['Assigned Worker Id'] = data.assignedWorkerId || null;
       if (data.address        !== undefined) patch['Service Address'] = data.address;
       if (data.techNotes      !== undefined) patch['Tech Notes'] = data.techNotes;
       if (data.techCompletedAt !== undefined) patch['Tech Completed At'] = data.techCompletedAt;
