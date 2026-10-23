@@ -365,4 +365,4 @@ async function createRebooking(body = {}) {
   return { success: true, bookingId, inviteSent, inviteMethod, gcalUrl, date, time: timeStr, clientName };
 }
 
-module.exports = { createRebooking, getBookInfo, createBooking, generateIcs, icsLocal, sendCalendarInvite, buildRebookEmail };
+module.exports = { oauthClient, createRebooking, getBookInfo, createBooking, generateIcs, icsLocal, sendCalendarInvite, buildRebookEmail };

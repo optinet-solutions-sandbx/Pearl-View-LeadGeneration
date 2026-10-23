@@ -127,7 +127,47 @@ async function insertFollowupLog(row) {
   await axios.post(`${URL()}/rest/v1/followup_log`, row, { headers: H() });
 }
 
+// ── Calendar invitations (calendar-sync.js). Raw snake_case rows.
+async function getCalendarInviteSettings() {
+  try {
+    const r = await axios.get(`${URL()}/rest/v1/calendar_invite_settings?id=eq.1&select=*`, { headers: H() });
+    return r.data[0] || null;
+  } catch (err) {
+    if (err.response?.status === 404) return null; // table not created yet
+    throw err;
+  }
+}
+
+async function fetchBookingsToSync({ nowIso, limit = 25 }) {
+  const q = 'bookings?gcal_sync_needed=eq.true'
+    + `&or=(gcal_next_at.is.null,gcal_next_at.lte.${encodeURIComponent(nowIso)})`
+    + '&select=id,client_name,client_email,date,job_time,booking_status,job_service,service_address,city,'
+    + 'gcal_event_id,gcal_status,gcal_attendee,gcal_sync_needed,gcal_rev,gcal_fail_count,gcal_next_at'
+    + `&order=gcal_next_at.asc.nullsfirst&limit=${limit}`;
+  const r = await axios.get(`${URL()}/rest/v1/${q}`, { headers: H() });
+  return r.data || [];
+}
+
+// Lease a flagged booking for this run (pushes gcal_next_at forward). false = taken
+// by another run, or the booking changed (gcal_rev) / was unflagged since selected.
+async function claimBookingSync(id, rev, now, leaseMin) {
+  const q = `bookings?id=eq.${id}&gcal_rev=eq.${rev}&gcal_sync_needed=eq.true`;
+  const lease = new Date(now.getTime() + leaseMin * 60000).toISOString();
+  const r = await axios.patch(`${URL()}/rest/v1/${q}`, { gcal_next_at: lease },
+    { headers: { ...H(), Prefer: 'return=representation' } });
+  return Array.isArray(r.data) && r.data.length === 1;
+}
+
+// Write the sync result ONLY if the booking is still at the revision we synced;
+// false = the office edited it mid-sync, so it stays flagged for the next run.
+async function finishBookingSync(id, rev, patch) {
+  const q = `bookings?id=eq.${id}&gcal_rev=eq.${rev}`;
+  const r = await axios.patch(`${URL()}/rest/v1/${q}`, patch, { headers: { ...H(), Prefer: 'return=representation' } });
+  return Array.isArray(r.data) && r.data.length === 1;
+}
+
 module.exports = {
+  getCalendarInviteSettings, fetchBookingsToSync, claimBookingSync, finishBookingSync,
   USE_SUPABASE, getLeadById, updateLead, nextInvoiceNumber, createBooking, fetchActiveBookings, findLead, createLead,
   getLeadsForContext, getFacebookLeadIds,
   getFollowupSettings, fetchDueFollowups, claimFollowup, updateActiveFollowup, insertFollowupLog,
