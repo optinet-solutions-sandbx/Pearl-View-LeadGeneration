@@ -28,6 +28,7 @@ const BOOKING_COLS = {
   'Lead Id': 'lead_id',
   'Assigned Worker Id': 'assigned_worker_id', 'Tech Notes': 'tech_notes',
   'Service Address': 'service_address', 'Tech Completed At': 'tech_completed_at',
+  'Client Email': 'client_email', 'Calendar Event Id': 'gcal_event_id', 'Invite Status': 'gcal_status', 'Invite Attendee': 'gcal_attendee',
 };
 const toCols = (map, fields) => { const o = {}; for (const [k, v] of Object.entries(fields || {})) if (map[k]) o[map[k]] = v; return o; };
 const leadRowToFields = row => {
@@ -52,6 +53,9 @@ async function createBooking(fields) {
   const r = await axios.post(`${URL()}/rest/v1/bookings`, toCols(BOOKING_COLS, fields),
     { headers: { ...H(), Prefer: 'return=representation' } });
   return r.data[0]?.id;
+}
+async function updateBooking(id, fields) {
+  await axios.patch(`${URL()}/rest/v1/bookings?id=eq.${id}`, toCols(BOOKING_COLS, fields), { headers: H() });
 }
 async function fetchActiveBookings() {
   const r = await axios.get(`${URL()}/rest/v1/bookings?select=date,client_name,phone,booking_status`, { headers: H() });
@@ -173,7 +177,7 @@ async function finishBookingSync(id, rev, patch) {
 
 module.exports = {
   getCalendarInviteSettings, fetchBookingsToSync, claimBookingSync, finishBookingSync,
-  USE_SUPABASE, getLeadById, updateLead, nextInvoiceNumber, createBooking, fetchActiveBookings, findLead, createLead,
+  USE_SUPABASE, getLeadById, updateLead, nextInvoiceNumber, createBooking, updateBooking, fetchActiveBookings, findLead, createLead,
   getLeadsForContext, getFacebookLeadIds,
   getFollowupSettings, fetchDueFollowups, claimFollowup, updateActiveFollowup, insertFollowupLog,
 };
