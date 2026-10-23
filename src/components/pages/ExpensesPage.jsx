@@ -1,27 +1,15 @@
 import { useState, useEffect } from 'react';
 import { EXPENSE_CATEGORIES } from '../../utils/constants';
+import { categoryOptions, normaliseNewCategory, categoryStyle } from '../../utils/expenseCategories';
 import { createRecord, deleteRecord, fetchRecords, AT_TABLES } from '../../utils/airtableSync';
 
-
-const CAT_COLORS = {
-  'Salary - Brad':               { bg: '#eff6ff', color: '#2563eb' },
-  'Salary - Alon':               { bg: '#eff6ff', color: '#2563eb' },
-  'Salary - Yuvi':               { bg: '#eff6ff', color: '#2563eb' },
-  'Salary - Rahda':              { bg: '#eff6ff', color: '#2563eb' },
-  'Salary - Joy':                { bg: '#eff6ff', color: '#2563eb' },
-  'Salary - Omri':               { bg: '#eff6ff', color: '#2563eb' },
-  'Fuel':                        { bg: '#fff7ed', color: '#c2410c' },
-  'Cleaning Supplies/Equipment': { bg: '#f0fdf4', color: '#15803d' },
-  'Advertising':                 { bg: '#fdf4ff', color: '#9333ea' },
-  'Marketing':                   { bg: '#fdf2f8', color: '#db2777' },
-  'Insurance':                   { bg: '#fef9c3', color: '#a16207' },
-  'General':                     { bg: '#f1f5f9', color: '#475569' },
-};
 
 export default function ExpensesPage() {
   const [expenses, setExpenses] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [form, setForm] = useState({ category: EXPENSE_CATEGORIES[0], amount: '', description: '', date: new Date().toISOString().slice(0, 10) });
+  const [newCat, setNewCat] = useState('');
+  const [catError, setCatError] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
   const [period,    setPeriod]    = useState('all');       // all | week | month | year
@@ -43,28 +31,39 @@ export default function ExpensesPage() {
     }).finally(() => setIsLoading(false));
   }, []);
 
+  const NEW_CAT = '__new__';
+  const catOptions = categoryOptions(EXPENSE_CATEGORIES, expenses);
+
   function handleChange(e) {
+    if (e.target.name === 'category') setCatError('');
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
   }
 
   async function handleAdd() {
     if (!form.amount || parseFloat(form.amount) <= 0) { alert('Enter a valid amount.'); return; }
+    let category = form.category;
+    if (category === NEW_CAT) {
+      category = normaliseNewCategory(newCat, catOptions);
+      if (!category) { setCatError('Type a name for the new category'); return; }
+    }
+    setCatError('');
     const tempId = `temp-${Date.now()}`;
     const entry = {
       id: tempId,
       airtableId: null,
-      category: form.category,
+      category,
       amount: parseFloat(form.amount),
       description: form.description.trim(),
       date: form.date,
     };
     setExpenses(prev => [entry, ...prev]);
-    setForm(prev => ({ ...prev, amount: '', description: '' }));
+    setForm(prev => ({ ...prev, category: EXPENSE_CATEGORIES[0], amount: '', description: '' }));
+    setNewCat('');
     setShowForm(false);
     // Write to Airtable and replace temp id with real Airtable id
     // Note: Created_At is an auto-generated field in Airtable, do NOT write it
     const airtableId = await createRecord(AT_TABLES.expenses, {
-      'Expense Name': `${form.category} - ${form.date}`,
+      'Expense Name': `${category} - ${form.date}`,
       'Category':     entry.category,
       'Amount':       entry.amount,
       'Description':  entry.description || '',
@@ -141,8 +140,13 @@ export default function ExpensesPage() {
             <div className="fgroup" style={{ margin: 0 }}>
               <label className="flabel">Category</label>
               <select className="fselect" name="category" value={form.category} onChange={handleChange}>
-                {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                {catOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value={NEW_CAT}>+ Add new category…</option>
               </select>
+              {form.category === NEW_CAT && (
+                <input className="finput" style={{ marginTop: '8px' }} autoFocus maxLength={40} placeholder="e.g. Salary - Sam" value={newCat} onChange={e => { setNewCat(e.target.value); setCatError(''); }} />
+              )}
+              {catError && <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '8px', padding: '8px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px' }}>{catError}</div>}
             </div>
             <div className="fgroup" style={{ margin: 0 }}>
               <label className="flabel">Amount ($)</label>
@@ -201,7 +205,7 @@ export default function ExpensesPage() {
             <div style={{ fontSize: '22px', fontWeight: 800, color: '#dc2626', marginTop: '4px' }}>${total.toLocaleString('en-AU', { minimumFractionDigits: 2 })}</div>
           </div>
           {byCategory.map(({ cat, total: t }) => {
-            const c = CAT_COLORS[cat] || { bg: '#f1f5f9', color: '#475569' };
+            const c = categoryStyle(cat);
             return (
               <div key={cat} style={{ background: c.bg, border: `1.5px solid ${c.color}22`, borderRadius: '10px', padding: '12px' }}>
                 <div style={{ fontSize: '10.5px', fontWeight: 700, color: c.color, marginBottom: '4px' }}>{cat}</div>
@@ -236,7 +240,7 @@ export default function ExpensesPage() {
               </thead>
               <tbody>
                 {visible.map(e => {
-                  const c = CAT_COLORS[e.category] || { bg: '#f1f5f9', color: '#475569' };
+                  const c = categoryStyle(e.category);
                   const d = new Date(e.date);
                   const dateStr = d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
                   return (
