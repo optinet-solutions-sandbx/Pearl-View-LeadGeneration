@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useLeads } from '../hooks/useLeads';
 import { updateRecord, AT_TABLES } from '../utils/airtableSync';
-import { USE_SUPABASE, fetchFollowupSettings } from '../utils/supabaseClient';
+import { USE_SUPABASE, fetchFollowupSettings, fetchInviteSettings } from '../utils/supabaseClient';
 
 const LeadsContext = createContext(null);
 
@@ -25,6 +25,13 @@ export function LeadsProvider({ children, technician = false }) {
   useEffect(() => {
     if (readOnly || !USE_SUPABASE) return;
     fetchFollowupSettings().then(setFollowupSettings);
+  }, [readOnly]);
+
+  // Calendar-invite settings (owner + Supabase only). null = not set up / technician.
+  const [inviteSettings, setInviteSettings] = useState(null);
+  useEffect(() => {
+    if (readOnly || !USE_SUPABASE) return;
+    fetchInviteSettings().then(setInviteSettings);
   }, [readOnly]);
 
   const [activeId, setActiveId]       = useState(null);
@@ -209,6 +216,7 @@ export function LeadsProvider({ children, technician = false }) {
       await addCalBooking({
         clientName:     lead.name,
         phone:          lead.phone || '',
+        email:          lead.email || '',
         city:           lead.city  || '',
         address:        lead.address || '',
         service:        lead.jobType || 'Window Cleaning',
@@ -479,6 +487,8 @@ export function LeadsProvider({ children, technician = false }) {
       permanentDeleteClient,
       followupSettings,
       setFollowupSettings,
+      inviteSettings,
+      setInviteSettings,
       startFollowups,
       stopFollowups,
       refetch: fetchLeads,

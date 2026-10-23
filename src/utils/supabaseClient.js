@@ -117,6 +117,7 @@ const BOOKING_COLS = {
   'Lead Id': 'lead_id',
   'Assigned Worker Id': 'assigned_worker_id', 'Tech Notes': 'tech_notes',
   'Service Address': 'service_address', 'Tech Completed At': 'tech_completed_at',
+  'Client Email': 'client_email', 'Invite Status': 'gcal_status', // Invite Status is backend-owned (read-only in the UI)
 };
 const CLIENT_COLS = {
   'Client Name': 'client_name', 'Phone Number': 'phone_number', 'Phone': 'phone_number', 'Email': 'email',
@@ -216,6 +217,22 @@ export async function saveFollowupSettings(patch) {
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return (await r.json())[0] || null;
 }
+// ── Calendar invites (owner only; null = table missing / not the owner) ─────
+export async function fetchInviteSettings() {
+  try {
+    const rows = await sbSelect('calendar_invite_settings?id=eq.1&select=*');
+    return (rows && rows[0]) || null;
+  } catch { return null; }
+}
+export async function saveInviteSettings(patch) {
+  await ensureToken();
+  const r = await fetch(`${SB_URL}/rest/v1/calendar_invite_settings?id=eq.1`, {
+    method: 'PATCH', headers: { ...hdrJson(), Prefer: 'return=representation' },
+    body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
+  });
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return (await r.json())[0] || null;
+}
 export async function fetchFollowupLog(leadId) {
   try {
     return (await sbSelect(`followup_log?lead_id=eq.${leadId}&select=step,sent_at,to_email,test_mode,error&order=sent_at.desc&limit=20`)) || [];
@@ -303,6 +320,7 @@ export function sbBookingRowToRecord(row) {
     'Job Time': row.job_time, 'Assigned Worker': row.assigned_worker, 'Upsell Amount': row.upsell_amount, 'Upsell Notes': row.upsell_notes,
     'Lead Id': row.lead_id, 'Assigned Worker Id': row.assigned_worker_id, 'Tech Notes': row.tech_notes,
     'Service Address': row.service_address, 'Tech Completed At': row.tech_completed_at,
+    'Client Email': row.client_email, 'Invite Status': row.gcal_status,
   } };
 }
 export function sbClientRowToRecord(row) {

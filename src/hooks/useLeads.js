@@ -160,7 +160,8 @@ function normaliseCalBooking(rec) {
     airtableId:     rec.id,
     clientName:     f['Client Name']     || '',
     phone:          f['Phone']           || '',
-    email:          '',
+    email:          f['Client Email']    || '',
+    inviteStatus:   f['Invite Status']   || '',
     city:           f['City']            || '',
     address:        f['Service Address'] || '',
     service:        f['Job_Service']     || '',
@@ -1069,6 +1070,8 @@ export function useLeads(technician = false) {
       // Persist the stable link so bookings match their lead by id, not fuzzy
       // phone/name (covers confirmBook, which passes linkedLeadId).
       ...(record.linkedLeadId ? { 'Lead Id': record.linkedLeadId } : {}),
+      // Old Airtable Bookings has no 'Client Email' field - sending it would fail the write.
+      ...(USE_SUPABASE && record.email ? { 'Client Email': record.email } : {}),
     };
     const airtableId = await createRecord(AT_TABLES.calendar, atFields);
     if (airtableId) {
@@ -1155,29 +1158,40 @@ export function useLeads(technician = false) {
   }, [calBookings, leads, patchAirtable]);
 
   const updateCalBooking = useCallback((id, data) => {
-    setCalBookings(prev => {
-      const booking = prev.find(b => b.id === id);
-      if (booking?.airtableId) {
-        const patch = {};
-        if (data.clientName    !== undefined) patch['Client Name']    = data.clientName;
-        if (data.phone         !== undefined) patch['Phone']          = data.phone;
-        if (data.city          !== undefined) patch['City']           = data.city;
-        if (data.service       !== undefined) patch['Job_Service']    = data.service;
-        if (data.bookingStatus !== undefined) patch['Booking Status'] = data.bookingStatus;
-        if (data.amount        !== undefined) patch['Amount']         = data.amount;
-        if (data.jobTime       !== undefined) patch['Job Time']       = data.jobTime;
-        if (data.assignedWorker !== undefined) patch['Assigned Worker'] = data.assignedWorker;
-        if (data.assignedWorkerId !== undefined) patch['Assigned Worker Id'] = data.assignedWorkerId;
-        if (data.address        !== undefined) patch['Service Address'] = data.address;
-        if (data.techNotes      !== undefined) patch['Tech Notes'] = data.techNotes;
-        if (data.techCompletedAt !== undefined) patch['Tech Completed At'] = data.techCompletedAt;
-        if (data.upsellAmount  !== undefined) patch['Upsell Amount']  = data.upsellAmount;
-        if (data.upsellNotes   !== undefined) patch['Upsell Notes']   = data.upsellNotes;
-        if (Object.keys(patch).length) updateRecord(AT_TABLES.calendar, booking.airtableId, patch);
+    const booking = calBookings.find(b => b.id === id);
+    if (booking?.airtableId) {
+      const patch = {};
+      if (data.clientName    !== undefined) patch['Client Name']    = data.clientName;
+      if (data.phone         !== undefined) patch['Phone']          = data.phone;
+      if (data.city          !== undefined) patch['City']           = data.city;
+      if (data.service       !== undefined) patch['Job_Service']    = data.service;
+      if (data.date          !== undefined) patch['Date']           = data.date || null;
+      // Old Airtable Bookings has no 'Client Email' field - only send it on Supabase.
+      if (USE_SUPABASE && data.email !== undefined) patch['Client Email'] = data.email;
+      if (data.bookingStatus !== undefined) patch['Booking Status'] = data.bookingStatus;
+      if (data.amount        !== undefined) patch['Amount']         = data.amount;
+      if (data.jobTime       !== undefined) patch['Job Time']       = data.jobTime;
+      if (data.assignedWorker !== undefined) patch['Assigned Worker'] = data.assignedWorker;
+      if (data.assignedWorkerId !== undefined) patch['Assigned Worker Id'] = data.assignedWorkerId;
+      if (data.address        !== undefined) patch['Service Address'] = data.address;
+      if (data.techNotes      !== undefined) patch['Tech Notes'] = data.techNotes;
+      if (data.techCompletedAt !== undefined) patch['Tech Completed At'] = data.techCompletedAt;
+      if (data.upsellAmount  !== undefined) patch['Upsell Amount']  = data.upsellAmount;
+      if (data.upsellNotes   !== undefined) patch['Upsell Notes']   = data.upsellNotes;
+      if (Object.keys(patch).length) updateRecord(AT_TABLES.calendar, booking.airtableId, patch);
+    }
+    setCalBookings(prev => prev.map(b => b.id === id ? { ...b, ...data } : b));
+
+    // Date moved on a lead-linked booking: keep the lead's scheduled date in step
+    // (same patch as saveJobDate). Lead read from the closure, not a setState updater.
+    if (booking && data.date !== undefined && data.date !== booking.date && booking.linkedLeadId) {
+      const lead = leads.find(l => l.id === booking.linkedLeadId);
+      if (lead) {
+        if (lead.airtableId) patchAirtable(lead.airtableId, { 'Scheduled Cleaning Date': data.date || null });
+        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, jobDate: data.date } : l));
       }
-      return prev.map(b => b.id === id ? { ...b, ...data } : b);
-    });
-  }, []);
+    }
+  }, [calBookings, leads, patchAirtable]);
 
   // Record payment for a calendar booking:
   // - Marks the booking Completed + amount
