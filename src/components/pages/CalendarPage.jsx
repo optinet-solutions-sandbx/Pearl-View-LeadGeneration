@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useLeadsContext } from '../../context/LeadsContext';
-import { timeRequired, inviteStatusLabel, changedFields } from '../../utils/inviteRules';
+import { timeRequired, timeFieldInfo, inviteStatusLabel, changedFields } from '../../utils/inviteRules';
 import { createRecord, AT_TABLES } from '../../utils/airtableSync';
 import { fetchTechnicians } from '../../utils/supabaseClient';
 import { overlayClose } from '../../utils/overlayClose';
@@ -166,6 +166,7 @@ const PILL_TONES = {
 
 function AppointmentFormFields({ form, setField, leads = [], clients = [], technicians = [], inviteSettings = null }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const timeInfo = timeFieldInfo(form.email, inviteSettings);
 
   const suggestions = useMemo(() => {
     if (form.clientName.trim().length < 1) return [];
@@ -246,8 +247,9 @@ function AppointmentFormFields({ form, setField, leads = [], clients = [], techn
       <input value={form.city} onChange={e => setField('city', e.target.value)} placeholder="e.g. Brisbane" style={fInput} />
       <label style={fLbl}>Address</label>
       <input value={form.address || ''} onChange={e => setField('address', e.target.value)} placeholder="e.g. 123 Main St" style={fInput} />
-      <label style={fLbl}>Job Time{timeRequired(form.email, '', inviteSettings) && <span style={{ color: '#dc2626' }}> *</span>}</label>
+      <label style={fLbl}>{timeInfo.required ? <>Job Time <span style={{ color: '#dc2626' }}>*</span></> : 'Job Time (optional)'}</label>
       <TimePicker value={form.jobTime || ''} onChange={v => setField('jobTime', v)} />
+      {timeInfo.hint && <div style={{ fontSize: '11.5px', color: 'var(--gray-500)', margin: '-6px 0 10px' }}>{timeInfo.hint}</div>}
       <label style={fLbl}>Assigned Worker{technicians.length === 0 && ' (name)'}</label>
       {technicians.length > 0 ? (
         // Assigning a technician account scopes their dashboard (RLS on

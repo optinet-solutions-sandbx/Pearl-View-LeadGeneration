@@ -22,6 +22,15 @@ export function timeRequired(email, jobTime, settings) {
   return isParseableTime(jobTime) ? '' : TIME_REQUIRED_MSG;
 }
 
+// What the booking forms show for Job Time — says exactly what timeRequired enforces,
+// so the label never calls the time optional when the invitation needs it.
+export function timeFieldInfo(email, settings) {
+  if (!settings?.enabled) return { required: false, hint: '' };
+  return timeRequired(email, '', settings)
+    ? { required: true, hint: "Needed for the client's calendar invitation" }
+    : { required: false, hint: 'No email on file — no calendar invitation will be sent' };
+}
+
 const LABELS = {
   sent:        { text: '📅 Invite sent', tone: 'ok' },
   pending:     { text: 'Invite queued', tone: 'muted' },

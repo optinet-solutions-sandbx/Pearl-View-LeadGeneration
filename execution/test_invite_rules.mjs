@@ -3,7 +3,7 @@
    Run: node execution/test_invite_rules.mjs   (exit 0 = pass) */
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { timeRequired, inviteStatusLabel, TIME_REQUIRED_MSG, isParseableTime, changedFields } from '../src/utils/inviteRules.js';
+import { timeRequired, timeFieldInfo, inviteStatusLabel, TIME_REQUIRED_MSG, isParseableTime, changedFields } from '../src/utils/inviteRules.js';
 
 const require = createRequire(import.meta.url);
 const be = require('../whatsapp-service/calendar-core.js');
@@ -28,6 +28,21 @@ assert.equal(timeRequired('   ', '', ON), '');
 assert.equal(timeRequired('jane@x.com', '', { enabled: false }), '');
 assert.equal(timeRequired('jane@x.com', '', null), '');
 assert.equal(timeRequired('jane@x.com', ''), '');
+
+// timeFieldInfo — the Job Time label/hint must say exactly what the save check enforces
+const INVITE_HINT = "Needed for the client's calendar invitation";
+const NO_EMAIL_HINT = 'No email on file — no calendar invitation will be sent';
+assert.deepEqual(timeFieldInfo('jane@x.com', ON), { required: true, hint: INVITE_HINT });
+assert.deepEqual(timeFieldInfo('Jane <jane@x.com>', ON), { required: true, hint: INVITE_HINT });
+for (const e of ['', null, undefined, '   ', 'not-an-email']) {
+  assert.deepEqual(timeFieldInfo(e, ON), { required: false, hint: NO_EMAIL_HINT }, `no email ${JSON.stringify(e)}`);
+}
+// invitations off / not set up on this branch → plain optional, no invitation talk
+assert.deepEqual(timeFieldInfo('jane@x.com', { enabled: false }), { required: false, hint: '' });
+assert.deepEqual(timeFieldInfo('jane@x.com', null), { required: false, hint: '' });
+for (const e of ['jane@x.com', 'Jane <jane@x.com>', '', null, 'nope', 'a@b.co']) {
+  assert.equal(timeFieldInfo(e, ON).required, timeRequired(e, '', ON) !== '', `label/check parity ${JSON.stringify(e)}`);
+}
 
 // parity with backend parseJobTime
 for (const t of ['9:00 AM', '9:00am', '9:00 pm', '12:00 AM', '12:30 PM', '13:00', '00:00', '23:59', '24:00',
