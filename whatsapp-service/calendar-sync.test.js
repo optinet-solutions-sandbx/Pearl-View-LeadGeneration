@@ -2,7 +2,7 @@
 // Run: node --test calendar-sync.test.js
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { runCalendarSync } = require('./calendar-sync');
+const { runCalendarSync, realDeps } = require('./calendar-sync');
 const { eventIdFor } = require('./calendar-core');
 
 test.beforeEach(() => {
@@ -168,6 +168,17 @@ test('probe reports ok', async () => {
 test('probe reports the error', async () => {
   const { deps } = fakeDeps({ probe: async () => { throw new Error('insufficient scope'); } });
   assert.deepEqual(await runCalendarSync({ probe: true, deps }), { probe: 'insufficient scope' });
+});
+
+test('real probe stays inside the calendar.events scope (calendarList needs more)', async () => {
+  const { google } = require('googleapis');
+  const used = [];
+  test.mock.method(google, 'calendar', () => ({
+    calendarList: { get: async () => { used.push('calendarList.get'); throw new Error('Insufficient Permission'); } },
+    events: { list: async args => { used.push(['events.list', args]); return { data: {} }; } },
+  }));
+  await realDeps.probe();
+  assert.deepEqual(used, [['events.list', { calendarId: 'primary', maxResults: 1 }]]);
 });
 
 test('insert 409 adopts the existing event', async () => {

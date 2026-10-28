@@ -36,7 +36,9 @@ const realDeps = {
     await calendarApi().events.delete({ calendarId: 'primary', eventId, sendUpdates: 'all' }, GOOGLE_OPTS);
   },
   async probe() {
-    await calendarApi().calendarList.get({ calendarId: 'primary' }, GOOGLE_OPTS);
+    // events.list, not calendarList.get: the token only carries calendar.events,
+    // which can't read calendarList (that call always says "Insufficient Permission").
+    await calendarApi().events.list({ calendarId: 'primary', maxResults: 1 }, GOOGLE_OPTS);
   },
 };
 
@@ -160,4 +162,4 @@ async function runCalendarSync({ dry = false, probe = false, now = new Date(), d
   return out;
 }
 
-module.exports = { runCalendarSync };
+module.exports = { runCalendarSync, realDeps };
