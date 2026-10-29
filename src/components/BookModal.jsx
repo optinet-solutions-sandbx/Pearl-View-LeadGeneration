@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useLeadsContext } from '../context/LeadsContext';
 import { overlayClose } from '../utils/overlayClose';
-import { timeRequired, timeFieldInfo } from '../utils/inviteRules';
+import { timeHint } from '../utils/inviteRules';
 
 // Native time input — converts between "9:00 AM" display format and HH:MM input value
 function TimePicker({ value, onChange }) {
@@ -51,16 +51,13 @@ export default function BookModal() {
 
   function handleSubmit() {
     if (!date) { setErr('Please select a date'); return; }
-    const timeErr = timeRequired(lead?.email, time, inviteSettings);
-    if (timeErr) { setErr(timeErr); return; }
     setErr('');
     confirmBook({ date, jobTime: time, worker, amount: parseFloat(amount) || 0, paymentMethod: method });
   }
 
   const lbl = { fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--gray-500)', marginBottom: '6px', display: 'block' };
   const hasAmount = parseFloat(amount) > 0;
-  // Required only when the client gets a calendar invitation (invites on + an email).
-  const timeInfo = timeFieldInfo(lead?.email, inviteSettings);
+  const hint = timeHint(lead?.email, inviteSettings);
 
   return (
     <div
@@ -89,9 +86,9 @@ export default function BookModal() {
           </div>
 
           <div>
-            <label style={lbl}>{timeInfo.required ? <>Job Time <span style={{ color: '#dc2626' }}>*</span></> : 'Job Time (optional)'}</label>
+            <label style={lbl}>Job Time (optional)</label>
             <TimePicker value={time} onChange={setTime} />
-            {timeInfo.hint && <div style={{ fontSize: '11.5px', color: 'var(--gray-500)', marginTop: '5px' }}>{timeInfo.hint}</div>}
+            {hint && <div style={{ fontSize: '11.5px', color: 'var(--gray-500)', marginTop: '5px' }}>{hint}</div>}
           </div>
 
           <div>

@@ -1,34 +1,16 @@
-// Booking-form invite rules (frontend). The time parsing MUST accept exactly what
-// whatsapp-service/calendar-core.js parseJobTime accepts, and the email check the
-// sender's cleanEmail rule — execution/test_invite_rules.mjs enforces the time parity.
-
-export const TIME_REQUIRED_MSG = 'Add a time — the client gets a calendar invitation.';
+// Booking-form invite rules (frontend). The email check follows the sender's
+// cleanEmail rule (whatsapp-service/followup-core.js).
 
 // Unanchored, like the sender's cleanEmail ("Jane <jane@x.com>" is sendable).
 const HAS_EMAIL_RE = /[^\s<>@,;"'()]+@[^\s<>@,;"'()]+\.[^\s<>@,;"'()]+/;
 
-export function isParseableTime(str) {
-  const m = String(str == null ? '' : str).trim().match(/^(\d{1,2}):(\d{2})\s*([ap]m)?$/i);
-  if (!m) return false;
-  const h = parseInt(m[1], 10);
-  if (parseInt(m[2], 10) > 59) return false;
-  return m[3] ? h >= 1 && h <= 12 : h <= 23;
-}
-
-// Only while invitations are switched on — otherwise nothing will be sent.
-export function timeRequired(email, jobTime, settings) {
+// The Job Time field's hint. The time is optional — without one the sender
+// (calendar-core.js buildEvent) makes the invitation an all-day event.
+export function timeHint(email, settings) {
   if (!settings?.enabled) return '';
-  if (!HAS_EMAIL_RE.test(String(email || '').trim())) return '';
-  return isParseableTime(jobTime) ? '' : TIME_REQUIRED_MSG;
-}
-
-// What the booking forms show for Job Time — says exactly what timeRequired enforces,
-// so the label never calls the time optional when the invitation needs it.
-export function timeFieldInfo(email, settings) {
-  if (!settings?.enabled) return { required: false, hint: '' };
-  return timeRequired(email, '', settings)
-    ? { required: true, hint: "Needed for the client's calendar invitation" }
-    : { required: false, hint: 'No email on file — no calendar invitation will be sent' };
+  return HAS_EMAIL_RE.test(String(email || '').trim())
+    ? "Without a time, the client's invitation is for the whole day"
+    : 'No email on file — no calendar invitation will be sent';
 }
 
 const LABELS = {

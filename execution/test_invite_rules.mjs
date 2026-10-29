@@ -1,55 +1,25 @@
-/* Standalone tests for the booking-form invite rules, plus parity of the time
-   parsing with the backend (whatsapp-service/calendar-core.js parseJobTime).
+/* Standalone tests for the booking-form invite rules.
    Run: node execution/test_invite_rules.mjs   (exit 0 = pass) */
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
-import { timeRequired, timeFieldInfo, inviteStatusLabel, TIME_REQUIRED_MSG, isParseableTime, changedFields } from '../src/utils/inviteRules.js';
+import * as rules from '../src/utils/inviteRules.js';
+import { timeHint, inviteStatusLabel, changedFields } from '../src/utils/inviteRules.js';
 
-const require = createRequire(import.meta.url);
-const be = require('../whatsapp-service/calendar-core.js');
+// The time is optional: no rule blocks a save on a missing time any more.
+assert.equal(rules.timeRequired, undefined);
 
-const MSG = 'Add a time — the client gets a calendar invitation.';
-assert.equal(TIME_REQUIRED_MSG, MSG);
-
-// timeRequired (invites switched on)
+// timeHint — what the Job Time field says about the invitation
 const ON = { enabled: true };
-assert.equal(timeRequired('jane@x.com', '', ON), MSG);
-assert.equal(timeRequired('jane@x.com', '   ', ON), MSG);
-assert.equal(timeRequired('jane@x.com', null, ON), MSG);
-assert.equal(timeRequired('jane@x.com', 'morning', ON), MSG);
-assert.equal(timeRequired('jane@x.com', '25:00', ON), MSG);
-assert.equal(timeRequired('jane@x.com', '9:00 AM', ON), '');
-assert.equal(timeRequired('Jane <jane@x.com>', '', ON), MSG);
-assert.equal(timeRequired('', '', ON), '');
-assert.equal(timeRequired(null, '', ON), '');
-assert.equal(timeRequired('not-an-email', '', ON), '');
-assert.equal(timeRequired('   ', '', ON), '');
-// nothing will be sent → no time rule
-assert.equal(timeRequired('jane@x.com', '', { enabled: false }), '');
-assert.equal(timeRequired('jane@x.com', '', null), '');
-assert.equal(timeRequired('jane@x.com', ''), '');
-
-// timeFieldInfo — the Job Time label/hint must say exactly what the save check enforces
-const INVITE_HINT = "Needed for the client's calendar invitation";
+const ALL_DAY_HINT = "Without a time, the client's invitation is for the whole day";
 const NO_EMAIL_HINT = 'No email on file — no calendar invitation will be sent';
-assert.deepEqual(timeFieldInfo('jane@x.com', ON), { required: true, hint: INVITE_HINT });
-assert.deepEqual(timeFieldInfo('Jane <jane@x.com>', ON), { required: true, hint: INVITE_HINT });
+assert.equal(timeHint('jane@x.com', ON), ALL_DAY_HINT);
+assert.equal(timeHint('Jane <jane@x.com>', ON), ALL_DAY_HINT);
 for (const e of ['', null, undefined, '   ', 'not-an-email']) {
-  assert.deepEqual(timeFieldInfo(e, ON), { required: false, hint: NO_EMAIL_HINT }, `no email ${JSON.stringify(e)}`);
+  assert.equal(timeHint(e, ON), NO_EMAIL_HINT, `no email ${JSON.stringify(e)}`);
 }
-// invitations off / not set up on this branch → plain optional, no invitation talk
-assert.deepEqual(timeFieldInfo('jane@x.com', { enabled: false }), { required: false, hint: '' });
-assert.deepEqual(timeFieldInfo('jane@x.com', null), { required: false, hint: '' });
-for (const e of ['jane@x.com', 'Jane <jane@x.com>', '', null, 'nope', 'a@b.co']) {
-  assert.equal(timeFieldInfo(e, ON).required, timeRequired(e, '', ON) !== '', `label/check parity ${JSON.stringify(e)}`);
-}
-
-// parity with backend parseJobTime
-for (const t of ['9:00 AM', '9:00am', '9:00 pm', '12:00 AM', '12:30 PM', '13:00', '00:00', '23:59', '24:00',
-  '0:30 AM', '13:00 PM', '9:60', '9', '', '  ', null, undefined, 'abc', '9:00  AM', '9:00 Am', '1:5 PM', '09:05']) {
-  assert.equal(isParseableTime(t), be.parseJobTime(t) !== null, `parity ${JSON.stringify(t)}`);
-  assert.equal(timeRequired('a@b.co', t, ON) === '', be.parseJobTime(t) !== null, `timeRequired parity ${JSON.stringify(t)}`);
-}
+// invitations off / not set up on this branch → no invitation talk
+assert.equal(timeHint('jane@x.com', { enabled: false }), '');
+assert.equal(timeHint('jane@x.com', null), '');
+assert.equal(timeHint('jane@x.com'), '');
 
 // inviteStatusLabel
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useLeadsContext } from '../../context/LeadsContext';
-import { timeRequired, timeFieldInfo, inviteStatusLabel, changedFields } from '../../utils/inviteRules';
+import { timeHint, inviteStatusLabel, changedFields } from '../../utils/inviteRules';
 import { createRecord, AT_TABLES } from '../../utils/airtableSync';
 import { fetchTechnicians } from '../../utils/supabaseClient';
 import { overlayClose } from '../../utils/overlayClose';
@@ -166,7 +166,7 @@ const PILL_TONES = {
 
 function AppointmentFormFields({ form, setField, leads = [], clients = [], technicians = [], inviteSettings = null }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const timeInfo = timeFieldInfo(form.email, inviteSettings);
+  const hint = timeHint(form.email, inviteSettings);
 
   const suggestions = useMemo(() => {
     if (form.clientName.trim().length < 1) return [];
@@ -247,9 +247,9 @@ function AppointmentFormFields({ form, setField, leads = [], clients = [], techn
       <input value={form.city} onChange={e => setField('city', e.target.value)} placeholder="e.g. Brisbane" style={fInput} />
       <label style={fLbl}>Address</label>
       <input value={form.address || ''} onChange={e => setField('address', e.target.value)} placeholder="e.g. 123 Main St" style={fInput} />
-      <label style={fLbl}>{timeInfo.required ? <>Job Time <span style={{ color: '#dc2626' }}>*</span></> : 'Job Time (optional)'}</label>
+      <label style={fLbl}>Job Time (optional)</label>
       <TimePicker value={form.jobTime || ''} onChange={v => setField('jobTime', v)} />
-      {timeInfo.hint && <div style={{ fontSize: '11.5px', color: 'var(--gray-500)', margin: '-6px 0 10px' }}>{timeInfo.hint}</div>}
+      {hint && <div style={{ fontSize: '11.5px', color: 'var(--gray-500)', margin: '-6px 0 10px' }}>{hint}</div>}
       <label style={fLbl}>Assigned Worker{technicians.length === 0 && ' (name)'}</label>
       {technicians.length > 0 ? (
         // Assigning a technician account scopes their dashboard (RLS on
@@ -299,8 +299,6 @@ function EditBookingModal({ booking, onSave, onClose, onCancel, onComplete, lead
   function handleSave() {
     if (!form.clientName.trim()) { setErr('Client name is required'); return; }
     if (!form.date) { setErr('Please select a date'); return; }
-    const timeErr = timeRequired(form.email, form.jobTime, inviteSettings);
-    if (timeErr) { setErr(timeErr); return; }
     setErr('');
     // Changed fields only — an untouched field ('' vs NULL) would re-flag the
     // booking and email the client a needless "updated invitation".
@@ -409,8 +407,6 @@ function BookingModal({ year, month, day, leads, clients = [], technicians = [],
 
   function handleSubmitNew() {
     if (!form.clientName.trim()) { setFormErr('Client name is required'); return; }
-    const timeErr = timeRequired(form.email, form.jobTime, inviteSettings);
-    if (timeErr) { setFormErr(timeErr); return; }
     setFormErr('');
     const amt = parseFloat(form.amount) || 0;
     // Amount is the EXPECTED/quote figure stored on the booking — NOT income yet.
