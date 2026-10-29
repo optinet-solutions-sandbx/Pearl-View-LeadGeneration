@@ -62,7 +62,9 @@ test('buildEvent', () => {
   assert.equal(e.location, 'Sydney');
   assert.equal(e.description, 'Your window clean with Pearl View.\nService: Window Cleaning\nNeed to change it? Reply to this invitation or contact us on 0400 / b@pv.com.');
   assert.deepEqual(e.attendees, [{ email: 'jane@x.com', displayName: 'Jane' }]);
-  assert.deepEqual(e.reminders, { useDefault: true });
+  // Google turns an all-day event's reminders into overrides; a patch back to timed
+  // must clear them or Google rejects useDefault + overrides together (400).
+  assert.deepEqual(e.reminders, { useDefault: true, overrides: null });
   const s = buildEvent({ ...base, job_service: 'Solar', service_address: '1 A St', city: 'X' }, opts);
   assert.equal(s.summary, 'Solar — Pearl View');
   assert.equal(s.location, '1 A St');

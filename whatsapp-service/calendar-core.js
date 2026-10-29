@@ -80,7 +80,9 @@ function buildEvent(booking, { tz, brandShort, businessEmail, businessPhone, att
     description: `Your window clean with ${brandShort}.\nService: ${service}\nNeed to change it? Reply to this invitation or contact us on ${businessPhone} / ${businessEmail}.`,
     ...when,
     attendees: [{ email: attendee, displayName: booking.client_name }],
-    reminders: { useDefault: true },
+    // Google turns an all-day event's reminders into overrides; clear them so a
+    // patch back to a timed event isn't rejected (useDefault + overrides = 400).
+    reminders: { useDefault: true, overrides: null },
     status: 'confirmed', // a patch to an event deleted by hand in Google revives it
   };
 }
