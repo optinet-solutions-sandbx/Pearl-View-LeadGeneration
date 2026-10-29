@@ -142,7 +142,7 @@ async function runCalendarSync({ dry = false, probe = false, now = new Date(), d
         else if (plan.type === 'update') out.updated++;
         else out.cancelled++;
       } else {
-        // noop / past / no_email / needs_time — nothing to send; clear the flag.
+        // noop / past / no_email — nothing to send; clear the flag.
         patch = core.afterSkip(plan.type);
         out.skipped++;
       }

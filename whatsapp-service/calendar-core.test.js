@@ -31,7 +31,7 @@ test('planSync basics', () => {
   assert.equal(plan({ booking_status: 'Completed' }).type, 'noop');
   assert.equal(plan({ date: '2026-10-22' }).type, 'past');
   assert.equal(plan({ date: '2026-10-22', ...withEv, booking_status: 'Cancelled' }).type, 'cancel');
-  assert.equal(plan({ job_time: '' }).type, 'needs_time');
+  assert.deepEqual(plan({ job_time: '' }), { type: 'create', attendee: 'jane@x.com' }); // all-day invite
   assert.equal(plan({ client_email: '' }).type, 'no_email');
   assert.deepEqual(plan({ client_email: 'Jane <jane@x.com>' }), { type: 'create', attendee: 'jane@x.com' });
   assert.equal(plan({ client_email: '', gcal_event_id: 'e1' }).type, 'cancel');
@@ -57,8 +57,8 @@ test('buildEvent', () => {
   const opts = { tz: 'Australia/Sydney', brandShort: 'Pearl View', businessEmail: 'b@pv.com', businessPhone: '0400', attendee: 'jane@x.com' };
   const e = buildEvent({ ...base, city: 'Sydney', service_address: '' }, opts);
   assert.equal(e.summary, 'Window Cleaning — Pearl View');
-  assert.deepEqual(e.start, { dateTime: '2026-11-06T09:00:00', timeZone: 'Australia/Sydney' });
-  assert.deepEqual(e.end, { dateTime: '2026-11-06T11:00:00', timeZone: 'Australia/Sydney' });
+  assert.deepEqual(e.start, { dateTime: '2026-11-06T09:00:00', date: null, timeZone: 'Australia/Sydney' });
+  assert.deepEqual(e.end, { dateTime: '2026-11-06T11:00:00', date: null, timeZone: 'Australia/Sydney' });
   assert.equal(e.location, 'Sydney');
   assert.equal(e.description, 'Your window clean with Pearl View.\nService: Window Cleaning\nNeed to change it? Reply to this invitation or contact us on 0400 / b@pv.com.');
   assert.deepEqual(e.attendees, [{ email: 'jane@x.com', displayName: 'Jane' }]);
@@ -84,10 +84,27 @@ test('planSync: an existing event follows a move to a past date', () => {
   assert.equal(plan({ date: '2026-10-22' }).type, 'past'); // no event yet → still never invites into the past
 });
 
-test('planSync: a blank time with an existing event leaves the event alone', () => {
-  assert.equal(plan({ ...withEv, job_time: '' }).type, 'noop');
-  assert.equal(plan({ ...withEv, job_time: '', date: '2026-10-22' }).type, 'noop');
-  assert.equal(plan({ job_time: '' }).type, 'needs_time'); // no event yet → unchanged
+test('planSync: the time is optional — no time still invites (all-day)', () => {
+  for (const t of ['', null, '  ', 'morning']) {
+    assert.deepEqual(plan({ job_time: t }), { type: 'create', attendee: 'jane@x.com' }, String(t));
+    assert.deepEqual(plan({ ...withEv, job_time: t }), { type: 'update', attendee: 'jane@x.com' }, String(t));
+  }
+  assert.equal(plan({ ...withEv, job_time: '', date: '2026-10-22' }).type, 'update'); // follows a move
+  assert.equal(plan({ job_time: '', date: '2026-10-22' }).type, 'past');
+  assert.equal(plan({ job_time: '', client_email: '' }).type, 'no_email');
+});
+
+test('buildEvent: no time → all-day event; each shape clears the other so a patch can switch', () => {
+  const opts = { tz: 'Australia/Sydney', brandShort: 'Pearl View', businessEmail: 'b@pv.com', businessPhone: '0400', attendee: 'jane@x.com' };
+  for (const t of ['', null, 'morning']) {
+    const e = buildEvent({ ...base, job_time: t }, opts);
+    assert.deepEqual(e.start, { date: '2026-11-06', dateTime: null, timeZone: 'Australia/Sydney' }, String(t));
+    assert.deepEqual(e.end, { date: '2026-11-07', dateTime: null, timeZone: 'Australia/Sydney' }, String(t)); // end is exclusive
+  }
+  const nye = buildEvent({ ...base, job_time: '', date: '2026-12-31T00:00:00+00:00' }, opts);
+  assert.equal(nye.start.date, '2026-12-31');
+  assert.equal(nye.end.date, '2027-01-01');
+  assert.equal(buildEvent({ ...base, job_time: '' }, opts).status, 'confirmed');
 });
 
 test('timestamptz booking dates', () => {
@@ -112,7 +129,6 @@ test('afterSuccess / afterSkip', () => {
   });
   assert.equal(afterSuccess('update', now, 'e9', 'j@x.com').gcal_status, 'sent');
   assert.deepEqual(afterSkip('no_email'), { gcal_status: 'no_email', gcal_sync_needed: false, gcal_next_at: null });
-  assert.deepEqual(afterSkip('needs_time'), { gcal_status: 'needs_time', gcal_sync_needed: false, gcal_next_at: null });
   assert.deepEqual(afterSkip('past'), { gcal_sync_needed: false, gcal_next_at: null });
   assert.deepEqual(afterSkip('noop'), { gcal_sync_needed: false, gcal_next_at: null });
 });

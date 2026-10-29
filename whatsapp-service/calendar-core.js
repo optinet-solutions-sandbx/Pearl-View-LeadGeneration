@@ -48,9 +48,8 @@ function planSync(booking, settings, todayYmd) {
     else return { type: 'hold' };
   }
 
-  // An existing event never short-circuits on a past date (it follows the move) or a
-  // blanked time (nothing to move it to → leave the event as it is).
-  if (!parseJobTime(b.job_time)) return { type: hasEvent ? 'noop' : 'needs_time' };
+  // An existing event never short-circuits on a past date (it follows the move).
+  // The time is optional: without one the invitation is an all-day event.
   if (ymd(b.date) < todayYmd && !hasEvent) return { type: 'past' };
   if (!s.enabled && !hasEvent) return { type: 'noop' };
   return { type: hasEvent ? 'update' : 'create', attendee };
@@ -68,12 +67,18 @@ function buildEvent(booking, { tz, brandShort, businessEmail, businessPhone, att
   const service = booking.job_service || 'Window Cleaning';
   const time = parseJobTime(booking.job_time);
   const date = ymd(booking.date);
+  // No time → all-day event (end date is exclusive). Each shape nulls the other's
+  // field so a patch can switch an existing event between timed and all-day.
+  const when = time
+    ? { start: { dateTime: `${date}T${time}:00`, date: null, timeZone: tz },
+        end: { dateTime: addMinutes(date, time, EVENT_MINUTES), date: null, timeZone: tz } }
+    : { start: { date, dateTime: null, timeZone: tz },
+        end: { date: addMinutes(date, '00:00', 24 * 60).slice(0, 10), dateTime: null, timeZone: tz } };
   return {
     summary: `${service} — ${brandShort}`,
     location: booking.service_address || booking.city || '',
     description: `Your window clean with ${brandShort}.\nService: ${service}\nNeed to change it? Reply to this invitation or contact us on ${businessPhone} / ${businessEmail}.`,
-    start: { dateTime: `${date}T${time}:00`, timeZone: tz },
-    end: { dateTime: addMinutes(date, time, EVENT_MINUTES), timeZone: tz },
+    ...when,
     attendees: [{ email: attendee, displayName: booking.client_name }],
     reminders: { useDefault: true },
     status: 'confirmed', // a patch to an event deleted by hand in Google revives it
@@ -100,7 +105,6 @@ function afterSuccess(type, now, eventId, attendee) {
 function afterSkip(type) {
   const patch = {};
   if (type === 'no_email') patch.gcal_status = 'no_email';
-  if (type === 'needs_time') patch.gcal_status = 'needs_time';
   return { ...patch, gcal_sync_needed: false, gcal_next_at: null };
 }
 

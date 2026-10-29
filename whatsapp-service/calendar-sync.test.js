@@ -130,13 +130,20 @@ test('a Google failure backs off', async () => {
   assert.equal(p.gcal_sync_needed, undefined);
 });
 
-test('skips write the skip patch (no email, needs time)', async () => {
-  const { deps, calls } = fakeDeps({ rows: [BOOKING({ client_email: '' }), BOOKING({ id: 'B2', job_time: '' })] });
+test('a skip writes the skip patch (no email)', async () => {
+  const { deps, calls } = fakeDeps({ rows: [BOOKING({ client_email: '' })] });
   const r = await runCalendarSync({ now: NOW, deps });
-  assert.equal(r.skipped, 2);
+  assert.equal(r.skipped, 1);
   assert.equal(calls.finish[0][2].gcal_status, 'no_email');
-  assert.equal(calls.finish[1][2].gcal_status, 'needs_time');
   assert.equal(calls.insert.length, 0);
+});
+
+test('a booking without a time still gets an all-day invitation', async () => {
+  const { deps, calls } = fakeDeps({ rows: [BOOKING({ job_time: '' })] });
+  const r = await runCalendarSync({ now: NOW, deps });
+  assert.equal(r.created, 1);
+  assert.deepEqual(calls.insert[0].start, { date: '2026-10-30', dateTime: null, timeZone: 'Australia/Sydney' });
+  assert.equal(calls.finish[0][2].gcal_status, 'sent');
 });
 
 test('dry run claims and calls nothing', async () => {
